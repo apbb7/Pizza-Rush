@@ -267,14 +267,10 @@
 /* =========================================================
    CONSTANTS
 ========================================================= */
-// 1 unit = 1 meter. Blocks, streets and lots are now sized like an actual
-// downtown grid (e.g. Miami/Brickell-scale blocks) instead of a toy town —
-// vehicles, people and props were already roughly real-world sized, but the
-// blocks they sat in were far too small, which is what made it look fake.
-const SIDEWALK_W = 3;       // 3m sidewalks
-const ROAD_W = 18;          // curb-to-curb street width incl. sidewalks (~12m of drivable asphalt)
-const BLOCK_HALF = 30;      // 60m-deep buildable lot, typical of a real downtown block
-const BLOCK = ROAD_W + BLOCK_HALF*2; // 78m between block centers
+const SIDEWALK_W = 3;
+const ROAD_W = 18;
+const BLOCK_HALF = 30;
+const BLOCK = ROAD_W + BLOCK_HALF*2;
 const IX_RANGE = [-10,10];
 const IZ_RANGE = [-6,6];
 const TOWN_MIN_X = (IX_RANGE[0]-0.5)*BLOCK;
@@ -282,15 +278,11 @@ const TOWN_MAX_X = (IX_RANGE[1]+0.5)*BLOCK;
 const TOWN_MIN_Z = (IZ_RANGE[0]-0.5)*BLOCK;
 const TOWN_MAX_Z = (IZ_RANGE[1]+0.5)*BLOCK;
 
-const PLAYER_RADIUS = 0.62; // tight, realistic footprint — you have to actually touch something to crash
+const PLAYER_RADIUS = 0.62;
 
-// District boundaries are rivers — the only way across is a bridge,
-// so you can't just drive around the locked-area barrier. Two rings of
-// rivers separate five districts: downtown in the middle, suburbs/harbor
-// stepping out to the east, industrial/old town stepping out to the west.
-const RIVER_X = 3.5*BLOCK;  // downtown <-> suburbs/industrial (downtown = 7 cols)
-const RIVER_X2 = 6.5*BLOCK; // suburbs <-> harbor, industrial <-> old town
-const RIVER_HALF_WIDTH = 9;     // an 18m-wide tropical waterway
+const RIVER_X = 3.5*BLOCK;
+const RIVER_X2 = 6.5*BLOCK;
+const RIVER_HALF_WIDTH = 9;
 const BRIDGE_HALF_LEN = ROAD_W/2 + 3;
 const RIVER_REACH = 1800;
 const BRIDGE_Z = 0.5*BLOCK;
@@ -384,8 +376,13 @@ camera.position.set(0, 14, -16);
 
 const renderer = new THREE.WebGLRenderer({ antialias:true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
-renderer.shadowMap.enabled = true;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 1.5));
+// PERF FIX: shadow mapping was doubling the draw-call count every frame
+// (once for the camera, once for the shadow-casting light) on top of an
+// already huge mesh count from the procedural buildings below. That
+// combination was the main cause of multi-second frame times. Turning
+// shadows off is the single biggest win here.
+renderer.shadowMap.enabled = false;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
@@ -625,12 +622,9 @@ function makeWallTexture(style){
 
 /* =========================================================
    ARCHITECTURAL BUILDING SYSTEM
-   Each district gets distinct, geometrically complex building
-   types built from multiple meshes — not just boxes.
 ========================================================= */
 const roofShingleColors = [0xb9583a,0xc46b42,0xa84a32,0xcf7a4a,0x9c4530];
 
-// Compact helpers so building code stays readable
 function mkBox(group, ox, baseY, oz, w, h, d, mat){
   if(w<=0||h<=0||d<=0) return;
   const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
@@ -659,138 +653,96 @@ function addGroup(group){
   return group;
 }
 
-// ── Downtown high-rise with setbacks, cornices, balconies, crown ────────────
 function buildTower(x,z,hx,hz,height,color){
   const g=new THREE.Group(); g.position.set(x,0,z);
   const wallM=texMat('glass',color,hx,height);
   const concreteM=solidMat(new THREE.Color(color).multiplyScalar(0.78).getHex(),0.9);
   const darkM=solidMat(0x2a2c30,0.6);
-
-  // Podium — full footprint, bottom 25%
   const podH=Math.max(5, height*0.22);
   mkBox(g,0,0,0,hx*2,podH,hz*2,wallM);
-
-  // Podium cornice overhang
   mkBox(g,0,podH,0,hx*2+0.7,0.55,hz*2+0.7,concreteM);
-
-  // Recessed entrance on front face
   const entW=Math.min(hx*0.7, 5), entD=1.4, entH=Math.min(4,podH*0.65);
-  mkBox(g,0,0,hz+0.05,entW,entH,entD*2,darkM);        // dark recess
-  mkBox(g,0,entH,hz+entD*0.5,entW+0.6,0.5,entD+0.6,concreteM); // canopy
-  // Entrance steps
+  mkBox(g,0,0,hz+0.05,entW,entH,entD*2,darkM);
+  mkBox(g,0,entH,hz+entD*0.5,entW+0.6,0.5,entD+0.6,concreteM);
   [0.4,0.8,1.2].forEach((sh,i)=>{
-    mkBox(g,0,i*0.3,hz+entD+0.2+i*0.3, entW-i*0.4, 0.3, 0.6+i*0.3, concreteM);
+    mkBox(g,0,(2-i)*0.3,hz+entD+0.2+i*0.3, entW-i*0.4, 0.3, 0.6+i*0.3, concreteM);
   });
-  // Entrance pillars
   [-entW*0.4,entW*0.4].forEach(px=>{
     mkCyl(g,px,0,hz,0.22,0.25,entH*0.9,8,concreteM);
   });
-
-  // Tower shaft — first setback (85% width)
   const s1H=height*0.38, s1Y=podH;
   const s1hx=hx*0.85, s1hz=hz*0.85;
   mkBox(g,0,s1Y,0,s1hx*2,s1H,s1hz*2,wallM);
-
-  // Balconies on tower shaft, every ~4m
-  const balSpacing=4.2, balD=1.1, balT=0.22;
+  // PERF FIX: balconies used to spawn a full row every 4.2m with a rail
+  // post every 1.5m — on a 100m+ tower that alone was hundreds of tiny
+  // box meshes per building. Wider spacing keeps the look with far fewer meshes.
+  const balSpacing=13, balD=1.1, balT=0.22;
   const balM=solidMat(0xd0ccc4,0.8);
   const railM=solidMat(0x9aa0a8,0.6,0.3);
   let by=s1Y+3;
   while(by+balT < s1Y+s1H-2){
-    // south and north balconies
     [[0,s1hz+balD/2],[0,-s1hz-balD/2]].forEach(([bx,bz])=>{
       mkBox(g,bx,by,bz,s1hx*1.1,balT,balD,balM);
-      mkBox(g,bx,by+0.85,bz,s1hx*1.1,0.06,0.06,railM); // rail top
-      // rail posts
-      for(let p=-s1hx*0.5;p<=s1hx*0.5;p+=1.5){
+      mkBox(g,bx,by+0.85,bz,s1hx*1.1,0.06,0.06,railM);
+      for(let p=-s1hx*0.5;p<=s1hx*0.5;p+=4.5){
         mkBox(g,p,by+0.45,bz,0.06,0.9,0.06,railM);
       }
     });
     by+=balSpacing;
   }
-  // Horizontal banding every 3 floors
-  for(let b=s1Y+3;b<s1Y+s1H-1;b+=3){
+  for(let b=s1Y+3;b<s1Y+s1H-1;b+=9){
     mkBox(g,0,b,0,s1hx*2+0.18,0.2,s1hz*2+0.18,concreteM);
   }
-
-  // Second setback cornice
   mkBox(g,0,s1Y+s1H,0,s1hx*2+0.6,0.5,s1hz*2+0.6,concreteM);
-
-  // Crown — second setback (65%)
   const s2H=height*0.22, s2Y=s1Y+s1H;
   const s2hx=hx*0.6, s2hz=hz*0.6;
   mkBox(g,0,s2Y,0,s2hx*2,s2H,s2hz*2,wallM);
-  // Vertical fins on crown
   const finM=solidMat(new THREE.Color(color).multiplyScalar(0.7).getHex(),0.75);
   [[s2hx,-s2hz],[s2hx,s2hz],[-s2hx,-s2hz],[-s2hx,s2hz]].forEach(([fx,fz])=>{
     mkBox(g,fx,s2Y,fz, 0.5, s2H, 0.5, finM);
   });
-
-  // Parapet wall around crown
   const parH=1.2;
   mkBox(g,0,s2Y+s2H+parH/2,0,s2hx*2+0.4,parH,s2hz*2+0.4,concreteM);
-  mkBox(g,0,s2Y+s2H+parH/2,0,s2hx*2-0.5,parH,s2hz*2-0.5,darkM); // inner void
-
-  // Mechanical penthouse
+  mkBox(g,0,s2Y+s2H+parH/2,0,s2hx*2-0.5,parH,s2hz*2-0.5,darkM);
   const mphW=s2hx*0.7, mphH=Math.min(6,height*0.08);
   mkBox(g,0,s2Y+s2H+parH,0,mphW*2,mphH,mphW*2,solidMat(0x3a3c40,0.85));
-  // Antenna spire
   mkCyl(g,0,s2Y+s2H+parH+mphH,0,0.05,0.12,height*0.08,6,solidMat(0x888888,0.5,0.4));
-  // Beacon
   const bMesh=new THREE.Mesh(new THREE.SphereGeometry(0.18,8,8),
     solidMat(0xff3b30,0.4)); bMesh.material.emissive.setHex(0xff3b30); bMesh.material.emissiveIntensity=0.9;
   bMesh.position.set(0,s2Y+s2H+parH+mphH+height*0.08,0);
   g.add(bMesh);
-
   addGroup(g);
 }
 
-// ── Downtown mid-rise: Art Deco / setback slab ───────────────────────────────
 function buildMidrise(x,z,hx,hz,height,color){
   const g=new THREE.Group(); g.position.set(x,0,z);
   const wallM=texMat('glass',color,hx,height);
   const trimColor=new THREE.Color(color).multiplyScalar(0.72).getHex();
   const trimM=solidMat(trimColor,0.8);
   const darkM=solidMat(0x22242a,0.5);
-
-  // Base volume — vary proportions so not every midrise is identical
   const isSlim = Math.random()<0.45;
   const baseH=height*(isSlim?0.68:0.52);
   mkBox(g,0,0,0,hx*2,baseH,hz*2,wallM);
-
-  // Horizontal string courses
   [0.33,0.66].forEach(t=>{
     mkBox(g,0,baseH*t,0,hx*2+0.3,0.35,hz*2+0.3,trimM);
   });
-
-  // Recessed ground floor shopfronts
   const sfH=Math.min(4.5,baseH*0.3), sfD=0.8;
   [-1,1].forEach(side=>{
     mkBox(g,side*hx*0.42,0,hz+sfD/2,hx*0.7,sfH,sfD,darkM);
     mkBox(g,side*hx*0.42,sfH,hz+sfD,hx*0.7+0.4,0.4,sfD+0.5,trimM);
   });
-
-  // Mid cornice
   mkBox(g,0,baseH,0,hx*2+0.8,0.65,hz*2+0.8,trimM);
-
-  // Upper volume (setback)
   const upH=height-baseH;
   const uhx=hx*0.78, uhz=hz*0.78;
   mkBox(g,0,baseH,0,uhx*2,upH,uhz*2,texMat('glass',color,uhx,upH));
-
-  // Stepped crown
   const c1H=upH*0.18, c1hx=uhx*0.7;
   mkBox(g,0,baseH+upH,0,c1hx*2,c1H,c1hx*2,trimM);
   mkBox(g,0,baseH+upH+c1H,0,c1hx*0.8*2,c1H*0.6,c1hx*0.8*2,trimM);
-
-  // Vertical pilasters on upper volume
   const pilM=solidMat(trimColor,0.8);
-  for(let pz=-uhz+2;pz<=uhz-2;pz+=3.5){
+  for(let pz=-uhz+2;pz<=uhz-2;pz+=8){ // PERF FIX: fewer pilasters per building
     mkBox(g,-uhx-0.2,baseH,pz,0.4,upH,0.4,pilM);
     mkBox(g, uhx+0.2,baseH,pz,0.4,upH,0.4,pilM);
   }
-
-  // AC units on crown setback
   const acM=solidMat(0x6b6f73,0.7);
   for(let i=0;i<3;i++){
     const aw=0.8+Math.random()*0.5, ah=0.6+Math.random()*0.4;
@@ -799,31 +751,20 @@ function buildMidrise(x,z,hx,hz,height,color){
   addGroup(g);
 }
 
-// ── Suburban house: gable/hip roof, porch, chimney, garage ───────────────────
 function buildHouse(x,z,hx,hz,height,color){
   const g=new THREE.Group(); g.position.set(x,0,z);
   const wallM=texMat('house',color,hx,height);
   const foundM=solidMat(0xb0aa9c,0.9);
   const trimM=solidMat(0xf5f0e8,0.7);
   const darkM=solidMat(0x1e2028,0.6);
-
-  // Foundation step
   mkBox(g,0,0,0,hx*2+0.6,0.55,hz*2+0.6,foundM);
-
-  // Main walls
   mkBox(g,0,0.55,0,hx*2,height,hz*2,wallM);
-
-  // Corner trim boards
   [[hx,0],[-hx,0],[0,hz],[0,-hz]].forEach(([cx,cz])=>{
     const isX=Math.abs(cx)>Math.abs(cz);
     const tw=0.22,th=height;
     mkBox(g,cx,0.55,cz,isX?tw:hx*2+0.1,th,isX?hz*2+0.1:tw,trimM);
   });
-
-  // Fascia boards under roofline
   mkBox(g,0,0.55+height,0,hx*2+0.3,0.3,hz*2+0.3,trimM);
-
-  // Gable roof
   const ridgeAlongZ=Math.random()<0.5;
   const halfW=(ridgeAlongZ?hx:hz)+0.4;
   const halfLen=(ridgeAlongZ?hz:hx)+0.4;
@@ -839,8 +780,6 @@ function buildHouse(x,z,hx,hz,height,color){
   rMesh.position.set(0,0.55+height,0);
   rMesh.castShadow=true; rMesh.receiveShadow=true;
   g.add(rMesh);
-
-  // Gutter along eaves
   const gutM=solidMat(0x7a8080,0.6,0.2);
   const gW=hx*2+0.6, gD=hz*2+0.6;
   [[0, hz+0.3],[0,-(hz+0.3)]].forEach(([gx,gz])=>{
@@ -849,89 +788,63 @@ function buildHouse(x,z,hx,hz,height,color){
   [[hx+0.3,0],[-(hx+0.3),0]].forEach(([gx,gz])=>{
     mkBox(g,gx,0.55+height,gz,0.25,0.2,gD,gutM);
   });
-
-  // Front porch
   const porchW=Math.min(hx*1.1,4.5), porchD=2.0, porchH=Math.min(2.8,height*0.55);
-  mkBox(g,0,0.55,hz+porchD/2,porchW*2,0.22,porchD,foundM); // deck
-  mkBox(g,0,0.55+porchH,hz+porchD/2,porchW*2+0.3,0.18,porchD+0.3,trimM); // porch ceiling
-  // Porch columns
+  mkBox(g,0,0.55,hz+porchD/2,porchW*2,0.22,porchD,foundM);
+  mkBox(g,0,0.55+porchH,hz+porchD/2,porchW*2+0.3,0.18,porchD+0.3,trimM);
   const colM=solidMat(0xf5f0e8,0.7);
   [-porchW*0.6,porchW*0.6].forEach(cpx=>{
     mkCyl(g,cpx,0.55,hz+porchD*0.9,0.18,0.2,porchH,8,colM);
-    mkBox(g,cpx,0.55,hz+porchD*0.9,0.45,0.2,0.45,colM); // cap
-    mkBox(g,cpx,0.55+porchH-0.2,hz+porchD*0.9,0.45,0.2,0.45,colM); // base
+    mkBox(g,cpx,0.55,hz+porchD*0.9,0.45,0.2,0.45,colM);
+    mkBox(g,cpx,0.55+porchH-0.2,hz+porchD*0.9,0.45,0.2,0.45,colM);
   });
-  // Porch railing
   mkBox(g,0,0.55+0.9,hz+porchD,porchW*2,0.06,0.06,trimM);
   for(let rp=-porchW*0.85;rp<=porchW*0.85;rp+=0.7){
     mkBox(g,rp,0.55,hz+porchD,0.06,0.95,0.06,trimM);
   }
-  // Porch steps
   [0,1,2].forEach(i=>{
-    mkBox(g,0,i*0.22,hz+porchD+0.2+i*0.25,porchW*1.8-i*0.3,0.22,0.35,foundM);
+    mkBox(g,0,(2-i)*0.22,hz+porchD+0.2+i*0.25,porchW*1.8-i*0.3,0.22,0.35,foundM);
   });
-  // Front door
   mkBox(g,0,0.55,hz+0.06,1.1,2.4,0.15,darkM);
-
-  // Chimney
   const chM=solidMat(0x8c3f33,0.9);
   const chX=(Math.random()<0.5?1:-1)*hx*0.5;
   mkBox(g,chX,0,0,1.0,height+rH*0.75,1.0,chM);
-  mkBox(g,chX,height+rH*0.75,0,1.2,0.5,1.2,solidMat(0x6a2e28,0.9)); // cap
-
-  // Attached garage (40% chance)
+  mkBox(g,chX,height+rH*0.75,0,1.2,0.5,1.2,solidMat(0x6a2e28,0.9));
   if(Math.random()<0.4){
     const garW=4.5, garH=height*0.6, garD=4.2;
     const garX=(Math.random()<0.5?1:-1)*(hx+garW/2+0.1);
     mkBox(g,garX,0.55,0,garW,garH,garD*2,wallM);
-    mkBox(g,garX,0.55+garH-1.5,0+garD*0.5,garW*0.85,1.8,0.15,darkM); // door
-    // Garage roof (shed style)
+    mkBox(g,garX,0.55+garH-1.5,0+garD*0.5,garW*0.85,1.8,0.15,darkM);
     mkBox(g,garX,0.55+garH,0,garW+0.3,0.35,garD*2+0.3,solidMat(shingleColor,0.88));
   }
-
   addGroup(g);
 }
 
-// ── Industrial warehouse: loading dock, sawtooth roof, stacks ────────────────
 function buildWarehouse(x,z,hx,hz,height,color){
   const g=new THREE.Group(); g.position.set(x,0,z);
   const wallM=texMat('industrial',color,hx,height);
   const conM=solidMat(0x9aa0a8,0.9);
   const dkM=solidMat(0x22242a,0.5);
   const steelM=solidMat(0x7a8088,0.5,0.3);
-
-  // Main body
   mkBox(g,0,0,0,hx*2,height,hz*2,wallM);
-
-  // Horizontal corrugation bands
-  for(let b=2;b<height-0.5;b+=2.2){
+  for(let b=2;b<height-0.5;b+=5.5){ // PERF FIX: fewer corrugation bands
     mkBox(g,0,b,0,hx*2+0.1,0.12,hz*2+0.1,steelM);
   }
-
-  // Loading dock on front face
   const dockW=Math.min(hx*1.2,8), dockH=2.0, dockD=2.5, rampL=3.5;
-  mkBox(g,0,0,hz-dockD/2,dockW,dockH,dockD,conM);  // dock platform
-  // Roll-up door
+  mkBox(g,0,0,hz-dockD/2,dockW,dockH,dockD,conM);
   mkBox(g,0,dockH/2,hz+0.05,dockW*0.75,dockH,0.18,dkM);
-  // Dock bumpers
   [-dockW*0.3,dockW*0.3].forEach(bx=>{
     mkBox(g,bx,dockH*0.4,hz,0.3,dockH*0.5,0.4,solidMat(0x2a2a2a,0.6));
   });
-  // Loading ramp
   const rampGeo=new THREE.BoxGeometry(dockW*0.7,0.2,rampL);
   const rampMesh=new THREE.Mesh(rampGeo,conM);
   rampMesh.rotation.x=Math.atan2(dockH,rampL);
   rampMesh.position.set(0,dockH/2,hz+dockD/2+rampL*0.45);
   rampMesh.castShadow=true; g.add(rampMesh);
-
-  // Large side window strips
   const winM=solidMat(0x223344,0.3,0.1);
   for(let wh=height*0.55;wh<height-1.5;wh+=3.5){
     mkBox(g,-hx-0.05,wh,0,0.25,2.2,hz*1.2,winM);
     mkBox(g, hx+0.05,wh,0,0.25,2.2,hz*1.2,winM);
   }
-
-  // Sawtooth roof sections
   const teeth=Math.max(2,Math.floor(hx/4));
   const toothW=(hx*2)/teeth;
   const rfM=solidMat(0x7a8088,0.7,0.2);
@@ -939,7 +852,6 @@ function buildWarehouse(x,z,hx,hz,height,color){
   for(let t=0;t<teeth;t++){
     const tx=-hx+t*toothW+toothW/2;
     const toothH=Math.min(2.8,height*0.22);
-    // Sloped back face
     const sShape=new THREE.Shape();
     sShape.moveTo(-toothW/2,0); sShape.lineTo(toothW/2,toothH); sShape.lineTo(toothW/2,0); sShape.lineTo(-toothW/2,0);
     const sGeo=new THREE.ExtrudeGeometry(sShape,{depth:hz*2-0.4,bevelEnabled:false});
@@ -947,19 +859,14 @@ function buildWarehouse(x,z,hx,hz,height,color){
     const sMesh=new THREE.Mesh(sGeo,rfM);
     sMesh.position.set(tx,height,0);
     sMesh.castShadow=true; g.add(sMesh);
-    // Skylight glazing on vertical face
     mkBox(g,tx+toothW/2-0.12,height+toothH/2,0,0.25,toothH,hz*1.8,skyM);
   }
-
-  // Exhaust stacks
   const stackM=solidMat(0x5a5e62,0.7,0.2);
   [[hx*0.6,0],[hx*0.6,hz*0.5]].forEach(([sx,sz])=>{
     const sh=4+Math.random()*3;
     mkCyl(g,sx,height,sz,0.35,0.4,sh,8,stackM);
-    mkCyl(g,sx,height+sh,sz,0.55,0.3,0.4,8,stackM); // cap
+    mkCyl(g,sx,height+sh,sz,0.55,0.3,0.4,8,stackM);
   });
-
-  // Exterior fire-escape stairs (zig-zag approximation)
   const escM=solidMat(0x6a6e72,0.6,0.3);
   let ey=0;
   while(ey<height-3){
@@ -969,26 +876,18 @@ function buildWarehouse(x,z,hx,hz,height,color){
     mkBox(g,-(hx+0.6),nextY,side*hz*0.4,0.1,0.12,1.8,escM);
     ey=nextY;
   }
-
   addGroup(g);
 }
 
-// ── Harbor building: maritime shed, gambrel roof, dock crane ─────────────────
 function buildHarborBuilding(x,z,hx,hz,height,color){
   const g=new THREE.Group(); g.position.set(x,0,z);
   const wallM=texMat('industrial',color,hx,height);
   const metalM=solidMat(0x7a8488,0.5,0.3);
   const conM=solidMat(0xb0b4b8,0.85);
-
-  // Main shed
   mkBox(g,0,0,0,hx*2,height,hz*2,wallM);
-
-  // Gambrel roof (two slopes each side)
   const rfM=solidMat(0x4a5055,0.7,0.2);
-  const lowerAngle=0.45, upperAngle=0.9;
   const lowerH=height*0.25, upperH=height*0.2;
   const midW=hx*0.55;
-  // lower slope panels
   const slopeGeo=(w1,w2,sh,len)=>{
     const sh2=new THREE.Shape();
     sh2.moveTo(-w1,0); sh2.lineTo(-w2,sh); sh2.lineTo(w2,sh); sh2.lineTo(w1,0); sh2.lineTo(-w1,0);
@@ -998,138 +897,100 @@ function buildHarborBuilding(x,z,hx,hz,height,color){
   const sm=new THREE.Mesh(sg,rfM); sm.position.set(0,height,0); sm.castShadow=true; g.add(sm);
   const sg2=slopeGeo(midW,midW*0.1,upperH,hz); sg2.translate(0,0,-hz);
   const sm2=new THREE.Mesh(sg2,rfM); sm2.position.set(0,height+lowerH,0); sm2.castShadow=true; g.add(sm2);
-
-  // Large roll-up doors
   [[0,hz+0.05,Math.min(hx*1.3,8),Math.min(height*0.55,5)]].forEach(([dx,dz,dw,dh])=>{
     mkBox(g,dx,0,dz,dw,dh,0.2,solidMat(0x3a3c42,0.6));
-    // Door frame
     mkBox(g,dx,dh/2,dz,dw+0.5,0.3,0.3,metalM);
     [-dw/2,dw/2].forEach(fx=>mkBox(g,dx+fx,dh/2,dz,0.3,dh,0.3,metalM));
   });
-
-  // Dock crane (simple)
   const craneM=solidMat(0xe8b020,0.5,0.3);
   const cH=height+4;
   mkCyl(g,hx*0.7,0,hz*0.7,0.3,0.35,cH,8,craneM);
   mkBox(g,hx*0.7-2,cH,hz*0.7,4,0.3,0.3,craneM);
   mkBox(g,hx*0.7-4.1,cH-2,hz*0.7,0.2,2,0.2,metalM);
-
-  // Mooring cleats along base
   for(let mz=-hz+2;mz<hz;mz+=3){
     mkBox(g,hx+0.25,0.3,mz,0.5,0.35,0.7,metalM);
   }
-
-  // Metal trim strips
   [[0,hz],[0,-hz],[hx,0],[-hx,0]].forEach(([tx,tz])=>{
     const isX=Math.abs(tx)>Math.abs(tz);
     mkBox(g,tx,height*0.5,tz,isX?0.15:hx*2+0.2,height*0.9,isX?hz*2+0.2:0.15,metalM);
   });
-
   addGroup(g);
 }
 
-// ── Old Town: brick rowhouse/shopfront with ornate cornice, arched windows ───
 function buildOldtownBuilding(x,z,hx,hz,height,color){
   const g=new THREE.Group(); g.position.set(x,0,z);
   const brickM=texMat('house',color,hx,height);
   const stoneM=solidMat(new THREE.Color(color).lerp(new THREE.Color(0xc8c0b0),0.45).getHex(),0.85);
   const darkM=solidMat(0x1a1c20,0.5);
   const trimM=solidMat(0xd8d0bc,0.8);
-
-  // Main masonry walls
   mkBox(g,0,0,0,hx*2,height,hz*2,brickM);
-
-  // Rusticated stone base (ground two floors)
   const baseH=Math.min(5, height*0.3);
   mkBox(g,0,0,0,hx*2+0.05,baseH,hz*2+0.05,stoneM);
-
-  // String course above base
   mkBox(g,0,baseH,0,hx*2+0.4,0.45,hz*2+0.4,trimM);
-
-  // Ornate cornice at roofline (multi-layer)
   mkBox(g,0,height,0,hx*2+0.9,0.55,hz*2+0.9,trimM);
   mkBox(g,0,height+0.55,0,hx*2+0.6,0.4,hz*2+0.6,trimM);
   mkBox(g,0,height+0.95,0,hx*2+0.35,0.3,hz*2+0.35,trimM);
-  // Parapet above cornice
   const parH=1.8;
   mkBox(g,0,height+1.25,0,hx*2+0.6,parH,hz*2+0.6,brickM);
-  // Parapet gaps (battlements / crenellations)
   const bW=1.2, bGap=0.8;
   for(let bx=-hx+0.6;bx<hx-0.3;bx+=bW+bGap){
     mkBox(g,bx,height+1.25+parH*0.45,hz+0.35,bW,parH*0.55,0.7,darkM);
   }
-
-  // Arched window surrounds (front facade)
   const winH=Math.min(2.8,height*0.22), winW=Math.min(1.4,hx*0.55);
-  const wCount=Math.max(1,Math.floor(hx*1.5));
+  // PERF FIX: window count used to scale with building width (up to 20+ per
+  // floor, 5 meshes each — 600+ meshes on a single wide old-town building).
+  // Capped the count, skip every other floor, and merged the stone surround
+  // (lintel + 2 jambs + keystone) into a single frame box.
+  const wCount=Math.max(1,Math.min(4,Math.round(hx*1.5/5)));
   const wSpacing=hx*2/(wCount+1);
-  for(let floor=1;floor<Math.floor(height/3)-1;floor++){
+  for(let floor=1;floor<Math.floor(height/3)-1;floor+=2){
     const wy=baseH+floor*3+0.3;
     for(let w=1;w<=wCount;w++){
       const wx=-hx+w*wSpacing;
-      // Window recess
       mkBox(g,wx,wy,hz+0.06,winW,winH,0.3,darkM);
-      // Stone surround
-      mkBox(g,wx,wy+winH/2,hz+0.25,winW+0.4,0.2,0.15,stoneM);   // lintel
-      mkBox(g,wx-winW/2-0.18,wy,hz+0.25,0.18,winH,0.15,stoneM);  // left jamb
-      mkBox(g,wx+winW/2+0.18,wy,hz+0.25,0.18,winH,0.15,stoneM);  // right jamb
-      // Arch keystone
-      const ks=new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.12,0.4,5),stoneM);
-      ks.position.set(wx,wy+winH+0.15,hz+0.25); ks.castShadow=true; g.add(ks);
+      mkBox(g,wx,wy+winH/2+0.15,hz+0.25,winW+0.5,0.35,0.18,stoneM);
     }
   }
-
-  // Ground floor storefront
   const sfH=baseH*0.85, sfW=Math.min(hx*1.5,5.5);
-  mkBox(g,0,0,hz+0.06,sfW,sfH,0.35,darkM);   // display window
-  mkBox(g,0,sfH,hz+0.22,sfW+0.5,0.5,0.5,stoneM);  // transom
-  // Recessed entry
+  mkBox(g,0,0,hz+0.06,sfW,sfH,0.35,darkM);
+  mkBox(g,0,sfH,hz+0.22,sfW+0.5,0.5,0.5,stoneM);
   mkBox(g,0,0,hz+0.5,1.0,sfH*0.8,0.5,darkM);
-  // Entry steps
-  [0,1].forEach(i=>mkBox(g,0,i*0.22,hz+0.6+i*0.2,1.4-i*0.2,0.22,0.3,stoneM));
-
-  // Corner quoins
+  [0,1].forEach(i=>mkBox(g,0,(1-i)*0.22,hz+0.6+i*0.2,1.4-i*0.2,0.22,0.3,stoneM));
   const qM=solidMat(0xd0c8b4,0.82);
-  for(let qy=0;qy<height-1;qy+=1.5){
+  for(let qy=0;qy<height-1;qy+=4.5){
     const big=qy%3<1.5;
     mkBox(g, hx+0.05,qy, hz*0.5, big?0.35:0.2, big?0.6:0.45, big?0.45:0.3, qM);
     mkBox(g,-hx-0.05,qy, hz*0.5, big?0.35:0.2, big?0.6:0.45, big?0.45:0.3, qM);
   }
-
   addGroup(g);
 }
 
-// ── Dispatch: pick building type based on district and size ─────────────────
 function addBuildingMesh(x,z,hx,hz,height,color,roofStyle,wallStyle){
   if(wallStyle==='house')          buildHouse(x,z,hx,hz,height,color);
   else if(wallStyle==='harbor')    buildHarborBuilding(x,z,hx,hz,height,color);
   else if(wallStyle==='oldtown')   buildOldtownBuilding(x,z,hx,hz,height,color);
   else if(wallStyle==='industrial')buildWarehouse(x,z,hx,hz,height,color);
-  else{ // glass / downtown
+  else{
     if(height>30) buildTower(x,z,hx,hz,height,color);
     else          buildMidrise(x,z,hx,hz,height,color);
   }
   return null;
 }
 
-
 function makeShopBuilding(x,z){
   const hx=11, hz=11, h=9;
   addBuildingMesh(x,z,hx,hz,h,0xc23123,'flat','glass');
   addCurb(x,z);
   buildDriveway(x,z,hx,hz);
-  // awning
   const awnGeo = new THREE.BoxGeometry(hx*2+1.4, 0.5, 2.6);
   const awnMat = new THREE.MeshStandardMaterial({ color:0xf4c24d });
   const awn = new THREE.Mesh(awnGeo, awnMat);
   awn.position.set(x, 4.2, z+hz+0.8);
   scene.add(awn);
-  // pizza sign sprite — always visible, marks the pickup point
   scene.add(makeBeacon(x, z, 0x3e8e5b, '🍕', h));
   return { x,z,hx,hz,height:h, name:"Tony's Pizza", isShop:true };
 }
 
-// A paved concrete driveway cutting from the shop's side door out to the street.
 function buildDriveway(x,z,hx,hz){
   const driveWidth = 7;
   const startX = x - hx;
@@ -1140,7 +1001,6 @@ function buildDriveway(x,z,hx,hz){
   drive.position.set((startX+endX)/2, 0.19, z);
   drive.receiveShadow = true;
   scene.add(drive);
-  // expansion-joint lines for a concrete-slab look
   const jointMat = new THREE.MeshStandardMaterial({ color:0x8d8674, roughness:1 });
   const joints = 4;
   for(let i=1;i<joints;i++){
@@ -1149,7 +1009,6 @@ function buildDriveway(x,z,hx,hz){
     joint.position.set(jx, 0.2, z);
     scene.add(joint);
   }
-  // paved like a real driveway — counts as road surface, full speed, not grass
   drivewayZones.push({ x:(startX+endX)/2, z, hx:len/2, hz:driveWidth/2 });
 }
 
@@ -1171,9 +1030,6 @@ function addCurb(cx,cz){
   });
 }
 
-// Beacons mark the shop and the current delivery target. They render through
-// other geometry (depthTest:false) so they're always visible from anywhere,
-// and sit above the building's own roofline plus a ground ring at the base.
 function makeBeacon(x,z,color,emoji,baseHeight){
   baseHeight = baseHeight || 0;
   const group = new THREE.Group();
@@ -1233,9 +1089,6 @@ function buildTown(){
   }
 }
 
-// Downtown: buildings packed wall-to-wall across the whole block interior,
-// split into 2-3 attached storefronts/towers so it still reads as a city
-// block, with the road network as the only open space. Skyscraper heights.
 function buildDowntownBlock(cx,cz,ix,iz){
   const pal = palettes.downtown;
   const splitAlongX = Math.random()<0.5;
@@ -1257,7 +1110,6 @@ function buildDowntownBlock(cx,cz,ix,iz){
     buildings.push({x:bx,z:bz,hx,hz,height,ix,iz,dist:'downtown'});
     cursor += segLen;
   });
-  // street furniture along the sidewalk, decorative only (not collidable)
   const edge = BLOCK_HALF + SIDEWALK_W + 0.35;
   buildLamp(cx-edge, cz-edge);
   buildLamp(cx+edge, cz+edge);
@@ -1278,9 +1130,6 @@ const districtBuildConfig = {
   oldtown:    { hxMin:8,  hxMax:14, heightMin:8,  heightMax:22, roofStyle:'flat',  wallStyle:'oldtown',    parkChance:0.08 }
 };
 
-// Suburbs, industrial, harbor & old town: a single standalone building with a
-// yard around it, leaving grass that can be cut through as a shortcut.
-// Occasionally a small park instead, for variety.
 function buildSpacedBlock(cx,cz,ix,iz,dist){
   const cfg = districtBuildConfig[dist];
   if(Math.random()<cfg.parkChance){
@@ -1309,7 +1158,6 @@ function buildSpacedBlock(cx,cz,ix,iz,dist){
   }
 }
 
-// A small green pocket park — no building, just trees scattered on the lot.
 function buildPark(cx,cz){
   const count = 3 + Math.floor(Math.random()*3);
   for(let i=0;i<count;i++){
@@ -1319,7 +1167,6 @@ function buildPark(cx,cz){
   }
 }
 
-// Decorative parked car along a curb — visual only, no collision registered.
 function buildParkedCar(x,z,rotY){
   const colors = [0x4d8fe3,0xc23123,0xf4c24d,0x6b6b6b,0x8a5a9c,0x2c8a5a,0xffffff];
   const mesh = buildCarMesh(colors[Math.floor(Math.random()*colors.length)]);
@@ -1365,12 +1212,7 @@ function buildMailbox(x,z){
   box.position.set(x,0.6,z); box.castShadow=true; scene.add(box);
 }
 
-/* ----- river crossings & lock gates -----
-   Each district boundary is a river that runs the full length of the map;
-   the only way across is a single bridge. The lock gate sits on the bridge
-   deck and disappears once the area is unlocked — the river itself never
-   goes away, so there's no way to just drive around it. */
-const riverCrossings = {}; // key: district id -> {meshes:[...], wallEntries:[...]}
+const riverCrossings = {};
 
 function buildRiverCrossing(boundaryX, bridgeZ, key){
   const meshes = [];
@@ -1382,14 +1224,12 @@ function buildRiverCrossing(boundaryX, bridgeZ, key){
   river.receiveShadow = true;
   add(river);
 
-  // bridge deck — same black asphalt as the rest of the streets
   const deckMat = new THREE.MeshStandardMaterial({ color:0x0e0f11, roughness:0.9 });
   const deck = new THREE.Mesh(new THREE.BoxGeometry(RIVER_HALF_WIDTH*2+2, 0.5, BRIDGE_HALF_LEN*2), deckMat);
   deck.position.set(boundaryX, 0.05, bridgeZ);
   deck.castShadow = true; deck.receiveShadow = true;
   add(deck);
 
-  // matching dashed centerline, running across the bridge in the direction of travel
   const dashMat = new THREE.MeshStandardMaterial({ color:0xffce2e });
   const dashCount = 5;
   const totalLen = RIVER_HALF_WIDTH*2-2;
@@ -1400,7 +1240,6 @@ function buildRiverCrossing(boundaryX, bridgeZ, key){
     add(dash);
   }
 
-  // railings
   const railMat = new THREE.MeshStandardMaterial({ color:0xd9433a, roughness:0.6 });
   [-1,1].forEach(side=>{
     const rail = new THREE.Mesh(new THREE.BoxGeometry(RIVER_HALF_WIDTH*2+2, 0.5, 0.25), railMat);
@@ -1408,7 +1247,6 @@ function buildRiverCrossing(boundaryX, bridgeZ, key){
     rail.castShadow = true;
     add(rail);
   });
-  // support pylons
   [-1,1].forEach(side=>{
     const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,2.4,8), new THREE.MeshStandardMaterial({color:0x6b6b6b}));
     pylon.position.set(boundaryX+side*(RIVER_HALF_WIDTH-0.6), -1.2, bridgeZ);
@@ -1416,15 +1254,12 @@ function buildRiverCrossing(boundaryX, bridgeZ, key){
     add(pylon);
   });
 
-  // permanent impassable river collision, split around the bridge gap
   const northZ0 = bridgeZ+BRIDGE_HALF_LEN, northZ1 = RIVER_REACH;
   const southZ0 = -RIVER_REACH, southZ1 = bridgeZ-BRIDGE_HALF_LEN;
   const wallEntryNorth = { x:boundaryX, hx:RIVER_HALF_WIDTH, z:(northZ0+northZ1)/2, hz:(northZ1-northZ0)/2 };
   const wallEntrySouth = { x:boundaryX, hx:RIVER_HALF_WIDTH, z:(southZ0+southZ1)/2, hz:(southZ1-southZ0)/2 };
   riverWalls.push(wallEntryNorth, wallEntrySouth);
 
-  // visible boundary wall along both riverbanks — a clear, literal marker of
-  // where one district ends and the next begins, on either side of the water
   const wallMat = new THREE.MeshStandardMaterial({ color:0x736b5e, roughness:0.9 });
   const capMat = new THREE.MeshStandardMaterial({ color:0x9c9384, roughness:0.7 });
   const wallH = 2.4, wallT = 0.7;
@@ -1446,33 +1281,20 @@ function buildRiverCrossing(boundaryX, bridgeZ, key){
   riverCrossings[key] = { meshes, wallEntries:[wallEntryNorth, wallEntrySouth], boundaryX };
 }
 
-// When a district is bought, the entire river boundary disappears and is
-// replaced with a smooth paved road surface — the player can cross from
-// anywhere the two districts share a border, not just at the old bridge.
 function removeCrossing(key){
   const crossing = riverCrossings[key];
   if(!crossing) return;
-
-  // Remove all visual meshes (river, bridge, bank walls)
   crossing.meshes.forEach(m=>scene.remove(m));
-
-  // Remove ALL collision entries at this boundary x-position, not just the
-  // two tracked segments — clears any that might be stale or duplicated
   const bx = crossing.boundaryX;
   for(let i=riverWalls.length-1; i>=0; i--){
     if(Math.abs(riverWalls[i].x - bx) < 0.1) riverWalls.splice(i,1);
   }
-
-  // Fill the gap with a full-length black asphalt strip so the open border
-  // reads clearly as driveable road, not just an invisible gap
   const roadLen = TOWN_MAX_Z - TOWN_MIN_Z + ROAD_W*2;
   const roadMat = new THREE.MeshStandardMaterial({ color:0x0e0f11, roughness:0.9 });
   const roadStrip = new THREE.Mesh(new THREE.BoxGeometry(RIVER_HALF_WIDTH*2, 0.08, roadLen), roadMat);
   roadStrip.position.set(bx, 0.04, (TOWN_MIN_Z+TOWN_MAX_Z)/2);
   roadStrip.receiveShadow = true;
   scene.add(roadStrip);
-
-  // Yellow dashed centerline running the full length of the new road strip
   const dashMat = new THREE.MeshStandardMaterial({ color:0xffce2e });
   const dashStep = 38, dashLen = 24, dashW = 2.4;
   for(let z = TOWN_MIN_Z; z <= TOWN_MAX_Z; z += dashStep){
@@ -1480,7 +1302,6 @@ function removeCrossing(key){
     dash.position.set(bx, 0.1, z);
     scene.add(dash);
   }
-
   delete riverCrossings[key];
 }
 
@@ -1492,7 +1313,6 @@ function buildLockGate(x, bridgeZ, id, label){
   mesh.position.set(x, 2.1, bridgeZ);
   mesh.castShadow = true; mesh.receiveShadow = true;
   scene.add(mesh);
-  // stripes
   const stripeMat = new THREE.MeshStandardMaterial({ color:0xffffff });
   for(let i=-3;i<=3;i++){
     const s = new THREE.Mesh(new THREE.BoxGeometry(hx*2+0.1,0.5,1.0), stripeMat);
@@ -1516,17 +1336,13 @@ function buildLockGate(x, bridgeZ, id, label){
 
 let gateSuburbs, gateIndustrial, gateHarbor, gateOldtown;
 
-// A hard wall rings the entire playable city — north, south, and the outer
-// edges past harbor/old town — so there's no driving off into infinite grass.
 function buildCityPerimeterWall(){
   const wallMat = new THREE.MeshStandardMaterial({ color:0x5c5650, roughness:0.9 });
   const capMat = new THREE.MeshStandardMaterial({ color:0x847c6e, roughness:0.7 });
   const wallH = 3.2, wallT = 1.2;
   const segs = [
-    // north & south edges, spanning the full width
     { x:0, z:TOWN_MIN_Z, sx:TOWN_MAX_X-TOWN_MIN_X, sz:wallT },
     { x:0, z:TOWN_MAX_Z, sx:TOWN_MAX_X-TOWN_MIN_X, sz:wallT },
-    // east & west edges, spanning the full depth
     { x:TOWN_MIN_X, z:0, sx:wallT, sz:TOWN_MAX_Z-TOWN_MIN_Z },
     { x:TOWN_MAX_X, z:0, sx:wallT, sz:TOWN_MAX_Z-TOWN_MIN_Z }
   ];
@@ -1543,7 +1359,6 @@ function buildCityPerimeterWall(){
   });
 }
 
-/* ----- traffic ----- */
 function buildCarMesh(color){
   const g = new THREE.Group();
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.8,0.7,3.4), new THREE.MeshStandardMaterial({color, roughness:0.5, metalness:0.2}));
@@ -1561,8 +1376,6 @@ function buildCarMesh(color){
   return g;
 }
 
-// Box truck — cab toward -z (front), cargo box toward +z (rear), matching
-// the same forward convention as buildCarMesh.
 function buildTruckMesh(color){
   const g = new THREE.Group();
   const cab = new THREE.Mesh(new THREE.BoxGeometry(2.1,1.7,2.0), new THREE.MeshStandardMaterial({color, roughness:0.5, metalness:0.2}));
@@ -1582,8 +1395,6 @@ function buildTruckMesh(color){
   return g;
 }
 
-// Traffic lights cycle together city-wide: when x-axis traffic has green,
-// z-axis traffic has red, and vice versa, with a short yellow in between.
 const LIGHT_STAGES = [
   { dur:7, x:'green',  z:'red'    },
   { dur:2, x:'yellow', z:'red'    },
@@ -1592,7 +1403,7 @@ const LIGHT_STAGES = [
 ];
 const LIGHT_CYCLE = LIGHT_STAGES.reduce((a,s)=>a+s.dur,0);
 let lightClock = 0;
-const trafficLightProps = []; // {axis, dots:[red,yellow,green]}
+const trafficLightProps = [];
 function currentLightPhase(){
   let t = lightClock % LIGHT_CYCLE;
   for(const s of LIGHT_STAGES){ if(t<s.dur) return s; t-=s.dur; }
@@ -1613,12 +1424,12 @@ let lineXsGlobal = [], lineZsGlobal = [];
 function buildTraffic(){
   const carColors = [0x4d8fe3,0xe3402c,0xf4c24d,0x6b6b6b,0x8a5a9c,0x2c8a5a,0xffffff];
   const isRiverLine = (c)=> Math.abs(Math.abs(c)-RIVER_X)<0.01 || Math.abs(Math.abs(c)-RIVER_X2)<0.01;
-  const LANE_OFFSET = 3; // each direction gets its own lane, offset from the road centerline
+  const LANE_OFFSET = 3;
   const lanes = [];
   const lineXs = [], lineZs = [];
   for(let k=IX_RANGE[0]; k<IX_RANGE[1]; k++){
     const c=(k+0.5)*BLOCK;
-    if(isRiverLine(c)) continue; // skip the river boundary lines
+    if(isRiverLine(c)) continue;
     lineXs.push(c);
     lanes.push({axis:'x', cross:c-LANE_OFFSET, dir:1});
     lanes.push({axis:'x', cross:c+LANE_OFFSET, dir:-1});
@@ -1633,7 +1444,7 @@ function buildTraffic(){
   lineXsGlobal = lineXs; lineZsGlobal = lineZs;
 
   const shuffled = lanes.sort(()=>Math.random()-0.5);
-  const desiredCars = 95;
+  const desiredCars = 40; // PERF FIX: was 95 — each car/truck is several meshes
   for(let i=0;i<desiredCars;i++){
     const lane = shuffled[i % shuffled.length];
     const isTruck = Math.random()<0.22;
@@ -1659,8 +1470,6 @@ function buildTraffic(){
     });
   }
 
-  // traffic lights — two per intersection, one governing each axis, that
-  // actually cycle red/yellow/green and make traffic stop and go
   const cornerOff = ROAD_W/2 + 1.1;
   lineXs.forEach(lx=>{
     lineZs.forEach(lz=>{
@@ -1696,9 +1505,6 @@ function buildTrafficLight(x,z,axis){
   trafficLightProps.push({ axis, dots });
 }
 
-/* =========================================================
-   PEDESTRIANS — walk back and forth along sidewalks only
-========================================================= */
 function buildPedestrianMesh(){
   const g = new THREE.Group();
   const skinTones = [0xc99a6b,0xe8c2a0,0x8a5a3c,0x5c3a26,0xf0d0b0];
@@ -1724,7 +1530,7 @@ function buildPedestrianMesh(){
 }
 
 function spawnPedestrians(){
-  const count = 90;
+  const count = 40; // PERF FIX: was 90 — each pedestrian is 4 more meshes
   let tries = 0;
   while(pedestrians.length < count && tries < count*6){
     tries++;
@@ -1760,7 +1566,6 @@ function spawnPedestrians(){
   }
 }
 
-
 function buildScooterMesh(){
   const g = new THREE.Group();
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.85,0.45,1.9), new THREE.MeshStandardMaterial({color:0xe3402c, roughness:0.4, metalness:0.3}));
@@ -1771,32 +1576,27 @@ function buildScooterMesh(){
   handlebarPost.position.set(0,0.95,0.9); g.add(handlebarPost);
   const handlebar = new THREE.Mesh(new THREE.BoxGeometry(0.7,0.08,0.08), new THREE.MeshStandardMaterial({color:0x333333}));
   handlebar.position.set(0,1.28,0.9); g.add(handlebar);
-  // rider
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.4,0.55,0.3), new THREE.MeshStandardMaterial({color:0x3e8e5b}));
   torso.position.set(0,1.15,0.25); g.add(torso);
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.22,10,10), new THREE.MeshStandardMaterial({color:0xf2c79e}));
   head.position.set(0,1.62,0.25); g.add(head);
   const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.24,10,10,0,Math.PI*2,0,Math.PI/1.6), new THREE.MeshStandardMaterial({color:0xf4c24d}));
   helmet.position.set(0,1.66,0.25); g.add(helmet);
-  // wheels
   const wheelMat = new THREE.MeshStandardMaterial({color:0x111111});
   const wF = new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.32,0.22,10), wheelMat);
   wF.rotation.z=Math.PI/2; wF.position.set(0,0.32,0.85); g.add(wF);
   const wB = new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.32,0.22,10), wheelMat);
   wB.rotation.z=Math.PI/2; wB.position.set(0,0.32,-0.85); g.add(wB);
-  // pizza box rack
   const rack = new THREE.Mesh(new THREE.BoxGeometry(0.55,0.08,0.6), new THREE.MeshStandardMaterial({color:0x555555}));
   rack.position.set(0,0.85,-0.85); g.add(rack);
   const pizzaBox = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.18,0.5), new THREE.MeshStandardMaterial({color:0xcb3a2a}));
   pizzaBox.position.set(0,1.0,-0.85); pizzaBox.visible = false; g.add(pizzaBox);
-  // headlight
   const headlight = new THREE.Mesh(new THREE.SphereGeometry(0.1,8,8), new THREE.MeshStandardMaterial({color:0xfff7c0, emissive:0xfff7c0, emissiveIntensity:0.8}));
   headlight.position.set(0,0.6,1.0); g.add(headlight);
   castAll(g);
   return { mesh:g, wheels:[wF,wB], pizzaBox };
 }
 
-// A sleeker, faster bike — lower stance, two-tone racing paint, bigger wheels.
 function buildSportBikeMesh(){
   const g = new THREE.Group();
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.8,0.4,2.05), new THREE.MeshStandardMaterial({color:0x1b1f2e, roughness:0.3, metalness:0.5}));
@@ -1811,20 +1611,17 @@ function buildSportBikeMesh(){
   handlebar.position.set(0,1.08,0.95); g.add(handlebar);
   const windscreen = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.3,0.06), new THREE.MeshStandardMaterial({color:0x9cc4d9, transparent:true, opacity:0.6}));
   windscreen.rotation.x = -0.4; windscreen.position.set(0,1.05,1.05); g.add(windscreen);
-  // rider, leaned forward
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38,0.5,0.32), new THREE.MeshStandardMaterial({color:0x222222}));
   torso.position.set(0,1.0,0.2); torso.rotation.x = 0.25; g.add(torso);
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.21,10,10), new THREE.MeshStandardMaterial({color:0xf2c79e}));
   head.position.set(0,1.4,0.45); g.add(head);
   const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.23,10,10), new THREE.MeshStandardMaterial({color:0xe3402c}));
   helmet.position.set(0,1.43,0.45); g.add(helmet);
-  // wheels — bigger, sportier
   const wheelMat = new THREE.MeshStandardMaterial({color:0x111111});
   const wF = new THREE.Mesh(new THREE.CylinderGeometry(0.36,0.36,0.22,12), wheelMat);
   wF.rotation.z=Math.PI/2; wF.position.set(0,0.36,0.95); g.add(wF);
   const wB = new THREE.Mesh(new THREE.CylinderGeometry(0.36,0.36,0.26,12), wheelMat);
   wB.rotation.z=Math.PI/2; wB.position.set(0,0.36,-0.9); g.add(wB);
-  // small tail-mounted pizza box
   const rack = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.07,0.5), new THREE.MeshStandardMaterial({color:0x333333}));
   rack.position.set(0,0.78,-0.85); g.add(rack);
   const pizzaBox = new THREE.Mesh(new THREE.BoxGeometry(0.46,0.16,0.46), new THREE.MeshStandardMaterial({color:0xcb3a2a}));
@@ -1835,9 +1632,6 @@ function buildSportBikeMesh(){
   return { mesh:g, wheels:[wF,wB], pizzaBox };
 }
 
-// A small delivery car — slower to turn but fast, sturdy, and keeps pizzas
-// warmer with its enclosed cargo area. Rooftop sign doubles as the
-// holding-a-pizza indicator.
 function buildPizzaCarMesh(){
   const g = new THREE.Group();
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.7,0.65,3.1), new THREE.MeshStandardMaterial({color:0xe3402c, roughness:0.4, metalness:0.3}));
@@ -1851,7 +1645,6 @@ function buildPizzaCarMesh(){
     w.position.set(wx,0.34,wz);
     g.add(w);
   });
-  // rooftop pizza sign — lit up only while actually carrying an order
   const signPost = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,0.3,6), new THREE.MeshStandardMaterial({color:0x333333}));
   signPost.position.set(0,1.45,0.1); g.add(signPost);
   const pizzaBox = new THREE.Mesh(new THREE.BoxGeometry(0.55,0.32,0.55), new THREE.MeshStandardMaterial({color:0xf4c24d, emissive:0xf4c24d, emissiveIntensity:0.35}));
@@ -1868,8 +1661,6 @@ const vehicleDefs = {
   pizzacar: { name:'🚗 Pizza Car',     cost:180, maxSpeed:30, accel:16, turnRate:1.8, armor:0.7,  decayMul:0.82, build:buildPizzaCarMesh }
 };
 
-// Swaps the player's mesh/wheels/pizza-box to the given vehicle, keeping
-// position, heading and speed exactly where they were.
 function applyVehicleMesh(key){
   const def = vehicleDefs[key];
   const built = def.build();
@@ -1886,10 +1677,6 @@ function applyVehicleMesh(key){
 const player = { x:0, z:4, angle:Math.PI, speed:0, steerInput:0, smoothFriction:1.0, mesh:null, wheels:[], pizzaBox:null };
 applyVehicleMesh(state.currentVehicle);
 
-/* =========================================================
-   GUIDE ARROW — floats above the bike, always points at
-   the current goal (shop when idle, drop-off when delivering)
-========================================================= */
 function buildGuideArrow(){
   const shape = new THREE.Shape();
   shape.moveTo(0, 1.15);
@@ -1918,29 +1705,19 @@ function buildGuideArrow(){
 }
 const guideArrow = buildGuideArrow();
 
-/* =========================================================
-   GUIDE ARROW — always points toward the current goal
-   (the shop when no order is active, the delivery address otherwise)
-========================================================= */
-/* =========================================================
-   TERRAIN / FRICTION
-========================================================= */
 function terrainFrictionAt(x,z){
   for(let i=0;i<drivewayZones.length;i++){
     const d = drivewayZones[i];
-    if(Math.abs(x-d.x)<=d.hx && Math.abs(z-d.z)<=d.hz) return 1.0; // paved driveway - full speed
+    if(Math.abs(x-d.x)<=d.hx && Math.abs(z-d.z)<=d.hz) return 1.0;
   }
   const ix = Math.round(x/BLOCK), iz = Math.round(z/BLOCK);
   const dx = x-ix*BLOCK, dz = z-iz*BLOCK;
   if(Math.abs(dx)<=BLOCK_HALF && Math.abs(dz)<=BLOCK_HALF){
-    return 0.62; // grass / shortcut - slower
+    return 0.62;
   }
-  return 1.0; // road
+  return 1.0;
 }
 
-/* =========================================================
-   INPUT
-========================================================= */
 window.addEventListener('keydown', e=>{
   switch(e.code){
     case 'ArrowUp': case 'KeyW': state.keys.f=true; break;
@@ -1970,7 +1747,6 @@ function bindTouch(id, key){
 bindTouch('t-fwd','f'); bindTouch('t-back','b'); bindTouch('t-left','l'); bindTouch('t-right','r');
 if('ontouchstart' in window){ document.getElementById('touch-controls').classList.add('show'); }
 
-/* ----- mouse/touch camera orbit ----- */
 const camState = { yaw:0, pitch:0.5, dist:7.5, dragging:false, lastX:0, lastY:0 };
 renderer.domElement.style.touchAction = 'none';
 renderer.domElement.addEventListener('pointerdown', e=>{
@@ -1989,9 +1765,6 @@ renderer.domElement.addEventListener('wheel', e=>{
   camState.dist = Math.max(4, Math.min(18, camState.dist + e.deltaY*0.01));
 }, { passive:true });
 
-/* =========================================================
-   TOASTS
-========================================================= */
 function toast(msg, kind){
   const wrap = document.getElementById('toast-wrap');
   const el = document.createElement('div');
@@ -2001,12 +1774,6 @@ function toast(msg, kind){
   setTimeout(()=>el.remove(), 2500);
 }
 
-/* =========================================================
-   ORDERS
-========================================================= */
-// Is this x (or z) coordinate clear of every river and the city wall, with
-// a safety margin? Used to make sure delivery markers never land in a spot
-// that's actually unreachable.
 function isClearX(x, margin){
   if(x > TOWN_MAX_X-margin || x < TOWN_MIN_X+margin) return false;
   if(Math.abs(Math.abs(x)-RIVER_X)  < RIVER_HALF_WIDTH+margin) return false;
@@ -2017,28 +1784,20 @@ function isClearZ(z, margin){
   return z <= TOWN_MAX_Z-margin && z >= TOWN_MIN_Z+margin;
 }
 
-// Finds a point on the sidewalk just outside a building, instead of the
-// building's own center — so delivery markers/targets sit on the curb,
-// not appearing to be inside the building itself. Always verifies the spot
-// is actually clear (not inside a river or past the city wall) and flips
-// to the opposite side of the block if it isn't.
 function curbsideMarkerPos(b){
   const blockCenterX = b.ix*BLOCK, blockCenterZ = b.iz*BLOCK;
   const sidewalkR = BLOCK_HALF + SIDEWALK_W*0.55;
   const margin = 2;
   if(Math.abs(b.hz - BLOCK_HALF) < 0.5){
-    // spans the full block depth (downtown segment split along x) -> step out to a sidewalk on the z axis
     let pz = blockCenterZ + sidewalkR;
     if(!isClearZ(pz, margin)) pz = blockCenterZ - sidewalkR;
     return { x:b.x, z:pz };
   }
   if(Math.abs(b.hx - BLOCK_HALF) < 0.5){
-    // spans the full block width (downtown segment split along z) -> step out to a sidewalk on the x axis
     let px = blockCenterX + sidewalkR;
     if(!isClearX(px, margin)) px = blockCenterX - sidewalkR;
     return { x:px, z:b.z };
   }
-  // standalone building with a yard - step out to a sidewalk on the z axis
   let pz = blockCenterZ + sidewalkR;
   if(!isClearZ(pz, margin)) pz = blockCenterZ - sidewalkR;
   return { x:blockCenterX, z:pz };
@@ -2107,10 +1866,6 @@ function resetOrderUI(){
   document.getElementById('compass-row').style.display = 'flex';
 }
 
-// Districts are bought with money instead of unlocked by delivery count.
-// You can only buy a district that's adjacent to one you already own —
-// downtown (home) is always owned, so suburbs/industrial are buyable right
-// away, while harbor/old town need suburbs/industrial bought first.
 const districtShopConfig = {
   suburbs:    { label:'🏡 Suburbs',          cost:35,  requires:null,        gate:()=>gateSuburbs },
   industrial: { label:'🏭 Industrial District', cost:60, requires:null,     gate:()=>gateIndustrial },
@@ -2126,9 +1881,6 @@ function unlockDistrict(key){
   toast('🎉 New area unlocked: '+districtShopConfig[key].label.replace(/^\S+\s/,'')+'!', 'good');
 }
 
-/* =========================================================
-   COLLISIONS
-========================================================= */
 function resolveBoxCollision(px,pz,box,radius){
   const closeX = Math.max(box.x-box.hx, Math.min(px, box.x+box.hx));
   const closeZ = Math.max(box.z-box.hz, Math.min(pz, box.z+box.hz));
@@ -2137,7 +1889,6 @@ function resolveBoxCollision(px,pz,box,radius){
   if(distSq < radius*radius){
     let dist = Math.sqrt(distSq);
     if(dist < 0.0001){
-      // Player centre is exactly inside the box — push out along the shortest axis
       const oxX = box.hx - Math.abs(px-box.x);
       const oxZ = box.hz - Math.abs(pz-box.z);
       if(oxX < oxZ){ dx = px>box.x ? oxX+radius : -(oxX+radius); dz = 0; }
@@ -2191,46 +1942,34 @@ function updateDamageUI(){
   fill.style.background = state.damage>55 ? '#3e8e5b' : state.damage>25 ? '#f4c24d' : '#e3402c';
 }
 
-/* =========================================================
-   GAME LOOP
-========================================================= */
 const clock = new THREE.Clock();
 
 function update(dt){
   if(state.paused){ return; }
   const stats = baseStats();
 
-  // ---- player physics ----
-  // Acceleration — smooth ramp up and coast-down
   if(state.keys.f)       player.speed += stats.accel * dt;
   else if(state.keys.b)  player.speed -= stats.accel * 0.85 * dt;
-  else                   player.speed *= Math.max(0, 1 - 2.0*dt); // coast
+  else                   player.speed *= Math.max(0, 1 - 2.0*dt);
 
-  // Terrain friction — lerp smoothly between surfaces so there's no lurch
-  // when crossing grass/road boundaries
   const rawFriction = terrainFrictionAt(player.x, player.z);
   player.smoothFriction += (rawFriction - player.smoothFriction) * Math.min(1, dt * 6);
   const curMax = stats.maxSpeed * player.smoothFriction;
 
-  // Soft speed cap — approach the limit with a drag curve instead of a hard clip
   if(player.speed > curMax){
     player.speed -= (player.speed - curMax) * Math.min(1, dt * 8);
   }
   player.speed = Math.max(-stats.maxSpeed * 0.4, player.speed);
 
-  // Steering with inertia — steerInput tracks toward the key and decays
-  // when released, so the wheel swings gradually rather than snapping
   const rawSteer = (state.keys.l?1:0) - (state.keys.r?1:0);
-  const steerSpeed = 7.0; // how fast wheels swing to full lock
-  const steerReturn = 10.0; // how fast they self-centre
+  const steerSpeed = 7.0;
+  const steerReturn = 10.0;
   if(rawSteer !== 0){
     player.steerInput += (rawSteer - player.steerInput) * Math.min(1, dt * steerSpeed);
   } else {
     player.steerInput *= Math.max(0, 1 - dt * steerReturn);
   }
 
-  // Turn rate scales with speed so it's stable at low speed and responsive
-  // at cruise — the steerInput smoothing does the rest of the work
   if(Math.abs(player.steerInput) > 0.01){
     const speedFactor = Math.min(1, 0.3 + Math.abs(player.speed) / stats.maxSpeed);
     player.angle += player.steerInput * stats.turnRate * dt * speedFactor * (player.speed < 0 ? -1 : 1);
@@ -2239,23 +1978,19 @@ function update(dt){
   player.x += Math.sin(player.angle) * player.speed * dt;
   player.z += Math.cos(player.angle) * player.speed * dt;
 
-  // ---- collisions ----
-  // Save position before any collision resolution so we can measure total
-  // deflection and only bounce speed once — prevents jitter from stacking
-  // multiple independent pushes that each reverse speed on the same frame.
   if(state.invuln>0) state.invuln -= dt;
   let collided = false;
-  const MARGIN = 6; // wider broad-phase margin prevents tunneling at speed
+  const MARGIN = 6;
 
-  // Helper: after resolving a position push, zero out the velocity
-  // component that was pointing INTO the wall so the player slides
-  // along it rather than oscillating back in next frame.
+  // FIX: this used to be `player.speed -= dot`, which — since dot is
+  // negative when driving into a wall — actually INCREASED speed on
+  // every impact instead of cancelling the inward component. That was
+  // the main cause of the jittery/erratic collisions throughout the game.
   function cancelIntoWall(nx,nz){
     const dot = Math.sin(player.angle)*player.speed*nx + Math.cos(player.angle)*player.speed*nz;
-    if(dot < 0) player.speed -= dot; // dot<0 means moving into wall
+    if(dot < 0) player.speed += dot;
   }
 
-  // buildings
   for(let i=0;i<buildings.length;i++){
     const b = buildings[i];
     if(Math.abs(player.x-b.x)>b.hx+MARGIN || Math.abs(player.z-b.z)>b.hz+MARGIN) continue;
@@ -2267,7 +2002,6 @@ function update(dt){
       collided = true;
     }
   }
-  // gates
   [[gateSuburbs,'suburbs'],[gateIndustrial,'industrial'],[gateHarbor,'harbor'],[gateOldtown,'oldtown']].forEach(([g,key])=>{
     if(!g || state.unlocked[key]) return;
     const res = resolveBoxCollision(player.x, player.z, g, PLAYER_RADIUS);
@@ -2278,7 +2012,6 @@ function update(dt){
       collided = true;
     }
   });
-  // rivers
   for(let i=0;i<riverWalls.length;i++){
     const w = riverWalls[i];
     if(Math.abs(player.x-w.x)>w.hx+MARGIN || Math.abs(player.z-w.z)>w.hz+MARGIN) continue;
@@ -2290,7 +2023,6 @@ function update(dt){
       collided = true;
     }
   }
-  // city limits
   for(let i=0;i<boundaryWalls.length;i++){
     const w = boundaryWalls[i];
     if(Math.abs(player.x-w.x)>w.hx+MARGIN || Math.abs(player.z-w.z)>w.hz+MARGIN) continue;
@@ -2302,7 +2034,6 @@ function update(dt){
       collided = true;
     }
   }
-  // obstacles (trees, cones, etc.)
   for(let i=0;i<obstacles.length;i++){
     const o = obstacles[i];
     const dx = player.x-o.x, dz = player.z-o.z;
@@ -2317,8 +2048,6 @@ function update(dt){
     }
   }
   if(collided) player.speed *= 0.65;
-  // traffic — cars detect the player ahead in their lane and brake to avoid
-  // hitting them, and also stop for red/yellow lights at intersections
   lightClock += dt;
   updateTrafficLightVisuals();
   const lightPhase = currentLightPhase();
@@ -2336,7 +2065,6 @@ function update(dt){
       targetSpeed = c.speed * Math.min(1, t);
     }
 
-    // stop for a red or yellow light governing this car's direction of travel
     const myLightState = (c.axis==='x') ? lightPhase.x : lightPhase.z;
     if(myLightState!=='green'){
       const lines = (c.axis==='x') ? lineXsGlobal : lineZsGlobal;
@@ -2356,7 +2084,6 @@ function update(dt){
     else c.curSpeed = Math.max(targetSpeed, c.curSpeed - 20*dt);
 
     c.pos += c.curSpeed*c.dir*dt;
-    // one-way lane — wrap around at the ends instead of bouncing back
     const span = c.max-c.min;
     if(c.pos>c.max) c.pos -= span;
     if(c.pos<c.min) c.pos += span;
@@ -2365,7 +2092,6 @@ function update(dt){
     else { cx=c.cross; cz=c.pos; ang = c.dir>0? 0 : Math.PI; }
     c.mesh.position.set(cx,0,cz);
     c.mesh.rotation.y = ang;
-    // collide against the vehicle's real footprint (long axis along travel direction), not a loose circle
     const res = resolveBoxCollision(player.x, player.z, {x:cx,z:cz,hx:c.hx,hz:c.hz}, PLAYER_RADIUS);
     if(res.hit){
       player.x += res.nx*res.push; player.z += res.nz*res.push;
@@ -2378,7 +2104,6 @@ function update(dt){
     }
   }
 
-  // pedestrians — stroll back and forth along the sidewalks, never enter the road
   for(let i=0;i<pedestrians.length;i++){
     const p = pedestrians[i];
     p.pos += p.speed*p.dir*dt;
@@ -2407,12 +2132,10 @@ function update(dt){
   const wheelSpin = player.speed*dt*1.6;
   player.wheels.forEach(w=>{ w.rotation.x += wheelSpin; });
 
-  // ---- shop pickup ----
   if(!state.order && shopInfo){
     const dx = player.x-shopInfo.x, dz = player.z-shopInfo.z;
     if(Math.hypot(dx,dz) < shopInfo.hx+2.2){ startOrder(); }
   }
-  // ---- order progress ----
   if(state.order){
     state.order.freshness -= stats.decay*dt;
     if(state.order.freshness<=0){ ruinOrder(); }
@@ -2425,7 +2148,6 @@ function update(dt){
   const navTarget = state.order ? state.order.dropPoint : shopInfo;
   if(navTarget) updateOrderUI(navTarget);
 
-  // ---- camera: orbits around the player, driven by mouse/touch drag + wheel zoom ----
   const yaw = player.angle + camState.yaw;
   const horizDist = camState.dist*Math.cos(camState.pitch);
   const camY = 1.2 + camState.dist*Math.sin(camState.pitch);
@@ -2435,14 +2157,12 @@ function update(dt){
   const lookAt = new THREE.Vector3(player.x, 1.1, player.z);
   camera.lookAt(lookAt);
 
-  // beacon bob
   [destMarker].forEach(m=>{
     if(!m) return;
     m.userData.bob += dt*2;
     m.userData.sprite.position.y = m.userData.baseY + Math.sin(m.userData.bob)*0.4;
   });
 
-  // guide arrow — always points at the current goal
   if(navTarget){
     const tdx = navTarget.x-player.x, tdz = navTarget.z-player.z;
     const bearing = Math.atan2(tdx, tdz);
@@ -2468,17 +2188,8 @@ function updateOrderUI(target){
   document.getElementById('compass-arrow').style.transform = 'rotate('+(rel*180/Math.PI)+'deg)';
 }
 
-/* =========================================================
-   MINIMAP
-========================================================= */
-/* =========================================================
-   ROAD PATHFINDING — A* on the intersection grid
-   Intersections are the centres of every road crossing.
-   Column c → x = (IX_RANGE[0]+c-0.5)*BLOCK,  c ∈ [0, NUM_COLS)
-   Row    r → z = (IZ_RANGE[0]+r-0.5)*BLOCK,  r ∈ [0, NUM_ROWS)
-========================================================= */
-const NUM_COLS = IX_RANGE[1]-IX_RANGE[0]+2;   // 22
-const NUM_ROWS = IZ_RANGE[1]-IZ_RANGE[0]+2;   // 14
+const NUM_COLS = IX_RANGE[1]-IX_RANGE[0]+2;
+const NUM_ROWS = IZ_RANGE[1]-IZ_RANGE[0]+2;
 function nodeX(c){ return (IX_RANGE[0]+c-0.5)*BLOCK; }
 function nodeZ(r){ return (IZ_RANGE[0]+r-0.5)*BLOCK; }
 function worldToNode(wx,wz){
@@ -2487,7 +2198,6 @@ function worldToNode(wx,wz){
   return {c,r};
 }
 
-// Is the horizontal road segment between column c and c+1 at row r passable?
 function hSegPassable(c,r){
   const xL=nodeX(c), xR=nodeX(c+1), zr=nodeZ(r);
   const rivers=[
@@ -2498,15 +2208,14 @@ function hSegPassable(c,r){
   ];
   for(const {x:rx,key} of rivers){
     if(rx>xL && rx<xR){
-      if(state.unlocked[key]) return true;                // river removed
-      if(Math.abs(zr-BRIDGE_Z)<=BRIDGE_HALF_LEN) return true; // bridge row
+      if(state.unlocked[key]) return true;
+      if(Math.abs(zr-BRIDGE_Z)<=BRIDGE_HALF_LEN) return true;
       return false;
     }
   }
   return true;
 }
 
-// A* — returns array of {c,r} nodes or null if no path
 function aStar(sc,sr,ec,er){
   if(sc===ec && sr===er) return [{c:sc,r:sr}];
   const N=NUM_COLS, total=NUM_COLS*NUM_ROWS;
@@ -2545,7 +2254,6 @@ function aStar(sc,sr,ec,er){
   return null;
 }
 
-// Cache — recompute every 20 frames or when the target changes
 let _pathCache=null, _pathTargetKey='', _pathFrame=0, _mmFrame=0;
 function getRoutePath(){
   _mmFrame++;
@@ -2569,34 +2277,31 @@ function mapZ(z){ return MM_PAD + (1-(z-TOWN_MIN_Z)/(TOWN_MAX_Z-TOWN_MIN_Z))*(MM
 function drawMinimap(){
   mctx.clearRect(0,0,MM_W,MM_H);
 
-  // ---- Google Maps colour palette ----
   const GM = {
-    land:       '#f2f1ee', // parchment-gray land base
-    landSub:    '#e8f5e9', // green tint for suburbs/parks
-    landHarbor: '#e3f0f5', // faint blue tint for harbor district
-    landOld:    '#f5ede6', // warm tint for old town
-    landInd:    '#eeeeee', // cool gray for industrial
-    landLocked: '#d8d4cf', // greyed-out locked areas
-    block:      '#f2f1ee', // same as land — buildings will sit on this
-    building:   '#dedad5', // Google Maps tan-gray building footprint
-    buildStroke:'#c8c4bd', // faint outline on buildings
-    road:       '#ffffff', // white road surface
-    roadStroke: '#d6d3ce', // road outline / kerb colour
+    land:       '#f2f1ee',
+    landSub:    '#e8f5e9',
+    landHarbor: '#e3f0f5',
+    landOld:    '#f5ede6',
+    landInd:    '#eeeeee',
+    landLocked: '#d8d4cf',
+    block:      '#f2f1ee',
+    building:   '#dedad5',
+    buildStroke:'#c8c4bd',
+    road:       '#ffffff',
+    roadStroke: '#d6d3ce',
     roadMinor:  '#ffffff',
-    water:      '#aad3df', // Google Maps water blue
+    water:      '#aad3df',
     waterStroke:'#8ec6d8',
-    park:       '#c8e6c9', // Google Maps park green
-    lock:       'rgba(220,217,212,0.72)', // locked district wash
+    park:       '#c8e6c9',
+    lock:       'rgba(220,217,212,0.72)',
   };
 
   mctx.save();
-  // rounded clip
   const R = 10;
   mctx.beginPath();
   mctx.roundRect ? mctx.roundRect(0,0,MM_W,MM_H,R) : mctx.rect(0,0,MM_W,MM_H);
   mctx.clip();
 
-  // ── 1. Land base per district column ──────────────────────────────────────
   for(let ix=IX_RANGE[0]; ix<=IX_RANGE[1]; ix++){
     const dist = districtOf(ix);
     const locked = dist!=='downtown' && !state.unlocked[dist];
@@ -2611,7 +2316,6 @@ function drawMinimap(){
     mctx.fillRect(x0, z0, x1-x0, z1-z0);
   }
 
-  // ── 2. Rivers ─────────────────────────────────────────────────────────────
   const rHalfPx = Math.max(2, (RIVER_HALF_WIDTH/(TOWN_MAX_X-TOWN_MIN_X))*(MM_W));
   [RIVER_X,-RIVER_X,RIVER_X2,-RIVER_X2].forEach(rx=>{
     const cx = mapX(rx);
@@ -2622,21 +2326,15 @@ function drawMinimap(){
     mctx.beginPath(); mctx.moveTo(cx+rHalfPx,0); mctx.lineTo(cx+rHalfPx,MM_H); mctx.stroke();
   });
 
-  // ── 3. Roads (drawn as white filled strips with a gray outline) ───────────
-  // Road width in pixels
   const roadPxW = Math.max(3, (ROAD_W/(TOWN_MAX_X-TOWN_MIN_X))*(MM_W));
 
-  // Vertical roads (running top-to-bottom between IX columns)
   for(let ix=IX_RANGE[0]; ix<=IX_RANGE[1]+1; ix++){
     const cx = mapX((ix-0.5)*BLOCK);
-    // outline
     mctx.fillStyle = GM.roadStroke;
     mctx.fillRect(cx-roadPxW/2-0.8, 0, roadPxW+1.6, MM_H);
-    // white surface
     mctx.fillStyle = GM.road;
     mctx.fillRect(cx-roadPxW/2, 0, roadPxW, MM_H);
   }
-  // Horizontal roads (running left-to-right between IZ rows)
   for(let iz=IZ_RANGE[0]; iz<=IZ_RANGE[1]+1; iz++){
     const cz = mapZ((iz-0.5)*BLOCK);
     mctx.fillStyle = GM.roadStroke;
@@ -2645,7 +2343,6 @@ function drawMinimap(){
     mctx.fillRect(0, cz-roadPxW/2, MM_W, roadPxW);
   }
 
-  // ── 4. Building footprints ────────────────────────────────────────────────
   for(let i=0;i<buildings.length;i++){
     const b = buildings[i];
     const dist = districtOf(b.ix);
@@ -2659,7 +2356,6 @@ function drawMinimap(){
     mctx.strokeRect(bx-bhx+0.3, bz-bhz+0.3, bhx*2-0.6, bhz*2-0.6);
   }
 
-  // ── 5. Locked district overlay ────────────────────────────────────────────
   for(const [x0,x1,key] of [
     [RIVER_X,RIVER_X2,'suburbs'],[-RIVER_X2,-RIVER_X,'industrial'],
     [RIVER_X2,TOWN_MAX_X,'harbor'],[TOWN_MIN_X,-RIVER_X2,'oldtown']
@@ -2668,7 +2364,6 @@ function drawMinimap(){
       const mx0=mapX(x0), mx1=mapX(x1);
       mctx.fillStyle = GM.lock;
       mctx.fillRect(mx0, 0, mx1-mx0, MM_H);
-      // "🔒" text centered in the locked strip
       const stripCx=(mx0+mx1)/2, stripCy=MM_H/2;
       mctx.font='11px sans-serif'; mctx.textAlign='center'; mctx.textBaseline='middle';
       mctx.fillText('🔒', stripCx, stripCy-7);
@@ -2677,7 +2372,6 @@ function drawMinimap(){
     }
   }
 
-  // ── 6. Traffic cars — small colored rectangles ────────────────────────────
   for(let i=0;i<trafficCars.length;i++){
     const c=trafficCars[i];
     let cx,cz;
@@ -2687,23 +2381,19 @@ function drawMinimap(){
     mctx.fillRect(tx-1.5,tz-1,3,2);
   }
 
-  // ── 6.5. Blue route line — follows the road grid via A* ──────────────────
   const {path:routePath, tgt:routeTgt} = getRoutePath();
   if(routePath && routePath.length>0){
     const rpx=mapX(player.x), rpz=mapZ(player.z);
     const rtx=mapX(routeTgt.x), rtz=mapZ(routeTgt.z);
-    // build the polyline: player → path nodes → destination
     const pts=[[rpx,rpz]];
     for(const n of routePath) pts.push([mapX(nodeX(n.c)),mapZ(nodeZ(n.r))]);
     pts.push([rtx,rtz]);
-    // white outer stroke
     mctx.strokeStyle='rgba(255,255,255,0.9)';
     mctx.lineWidth=5; mctx.lineCap='round'; mctx.lineJoin='round';
     mctx.setLineDash([]);
     mctx.beginPath(); mctx.moveTo(pts[0][0],pts[0][1]);
     for(let i=1;i<pts.length;i++) mctx.lineTo(pts[i][0],pts[i][1]);
     mctx.stroke();
-    // Google blue inner line
     mctx.strokeStyle='#4285f4';
     mctx.lineWidth=3;
     mctx.beginPath(); mctx.moveTo(pts[0][0],pts[0][1]);
@@ -2711,9 +2401,7 @@ function drawMinimap(){
     mctx.stroke();
   }
 
-  // ── 7. Tony's Pizza — green Google Maps pin ───────────────────────────────
   const shopMx=mapX(0), shopMz=mapZ(0);
-  // pin drop shape
   mctx.fillStyle='#0f9d58';
   mctx.beginPath();
   mctx.arc(shopMx, shopMz-2, 5, 0, Math.PI*2);
@@ -2722,11 +2410,9 @@ function drawMinimap(){
   mctx.beginPath();
   mctx.ellipse(shopMx, shopMz+4, 3, 1.2, 0, 0, Math.PI*2);
   mctx.fill();
-  // pizza emoji
   mctx.font='6px sans-serif'; mctx.textAlign='center'; mctx.textBaseline='middle';
   mctx.fillText('🍕', shopMx, shopMz-2);
 
-  // ── 8. Delivery target — red pin ─────────────────────────────────────────
   if(state.order){
     const dpx=mapX(state.order.dropPoint.x), dpz=mapZ(state.order.dropPoint.z);
     mctx.fillStyle='#ea4335';
@@ -2739,54 +2425,40 @@ function drawMinimap(){
     mctx.fill();
     mctx.fillStyle='#fff'; mctx.font='6px sans-serif'; mctx.textAlign='center'; mctx.textBaseline='middle';
     mctx.fillText('🏠', dpx, dpz-2);
-    // pulsing ring
     mctx.strokeStyle='rgba(234,67,53,0.45)'; mctx.lineWidth=1.5;
     mctx.beginPath(); mctx.arc(dpx,dpz-2,7+Math.sin(Date.now()*0.004)*1.5,0,Math.PI*2); mctx.stroke();
   }
 
-  // ── 9. Player — blue Google Maps dot with heading cone ────────────────────
   const px=mapX(player.x), pz=mapZ(player.z);
-  // accuracy ring
   mctx.fillStyle='rgba(66,133,244,0.15)';
   mctx.beginPath(); mctx.arc(px,pz,14,0,Math.PI*2); mctx.fill();
-  // white halo
   mctx.fillStyle='#fff';
   mctx.beginPath(); mctx.arc(px,pz,6.5,0,Math.PI*2); mctx.fill();
-  // blue dot
   mctx.fillStyle='#4285f4';
   mctx.beginPath(); mctx.arc(px,pz,5,0,Math.PI*2); mctx.fill();
-  // heading cone — tip points in direction of travel.
-  // In our minimap: mapZ inverts world-Z (higher Z = upward on canvas).
-  // The forward unit vector in canvas space is (sin(angle), cos(angle))
-  // because +X stays the same but +Z maps to -canvasY, giving us
-  // a net direction of (sin, -(-cos)) = (sin, cos) in canvas coords.
   const fwdX = Math.sin(player.angle);
-  const fwdY = -Math.cos(player.angle); // minimap inverts Z → negate cos to get correct canvas direction
+  const fwdY = -Math.cos(player.angle);
   mctx.save();
   mctx.translate(px, pz);
   mctx.fillStyle = 'rgba(66,133,244,0.82)';
   mctx.strokeStyle = '#fff';
   mctx.lineWidth = 0.8;
   mctx.beginPath();
-  // Rotate canvas so forward = up (-y), then draw a simple upward arrow.
-  // atan2 of (fwdX, -fwdY) gives the canvas rotation needed so the shape's
-  // local -y axis aligns with the forward travel direction.
   const coneAngle = Math.atan2(fwdX, -fwdY);
   mctx.save();
   mctx.translate(px, pz);
   mctx.rotate(coneAngle);
   mctx.beginPath();
-  mctx.moveTo(0, -14);      // tip — points forward (up in local space)
-  mctx.lineTo( 6, -3);      // right wing
-  mctx.lineTo( 0, -6);      // inner notch
-  mctx.lineTo(-6, -3);      // left wing
+  mctx.moveTo(0, -14);
+  mctx.lineTo( 6, -3);
+  mctx.lineTo( 0, -6);
+  mctx.lineTo(-6, -3);
   mctx.closePath();
   mctx.fill(); mctx.stroke();
   mctx.restore();
 
-  mctx.restore(); // release clip
+  mctx.restore();
 
-  // ── 10. District labels ───────────────────────────────────────────────────
   mctx.font = 'bold 7px "Arial",sans-serif';
   mctx.textAlign = 'center'; mctx.textBaseline = 'top';
   const labelDefs=[
@@ -2806,7 +2478,6 @@ function drawMinimap(){
     mctx.fillText(label, lx, 4);
   });
 
-  // outer border — thin gray like Google Maps card edge
   mctx.strokeStyle='rgba(0,0,0,0.18)'; mctx.lineWidth=1;
   mctx.strokeRect(0.5,0.5,MM_W-1,MM_H-1);
 }
@@ -2819,14 +2490,11 @@ function updateHUD(){
 
 function animate(){
   requestAnimationFrame(animate);
-  const dt = Math.min(0.033, clock.getDelta()); // cap at 30fps minimum — tighter than before to prevent position jumps
+  const dt = Math.min(0.033, clock.getDelta());
   if(state.running) update(dt);
   renderer.render(scene, camera);
 }
 
-/* =========================================================
-   SHOP / UPGRADES UI
-========================================================= */
 const upgradeMeta = {
   engine:{ name:'⚙️ Engine Tune', desc:'Higher top speed & acceleration' },
   handling:{ name:'🛞 Handling Kit', desc:'Sharper turns & less crash damage' },
@@ -3003,9 +2671,6 @@ document.getElementById('districts-close').addEventListener('click', ()=>{
   state.paused = false;
 });
 
-/* =========================================================
-   START
-========================================================= */
 document.getElementById('start-btn').addEventListener('click', ()=>{
   document.getElementById('start-overlay').classList.add('hidden');
   state.running = true;
@@ -3018,7 +2683,6 @@ document.getElementById('newgame-btn').addEventListener('click', async ()=>{
 });
 
 async function boot(){
-  // 1. Try to load saved progress before anything is built
   let hasSave = false;
   if(window.storage){
     try{
@@ -3042,7 +2706,6 @@ async function boot(){
     } catch(e){}
   }
 
-  // Update start screen with save info
   const saveEl = document.getElementById('save-status');
   const newBtn = document.getElementById('newgame-btn');
   if(hasSave){
@@ -3052,8 +2715,6 @@ async function boot(){
     saveEl.textContent = 'No save found — starting fresh.';
   }
 
-  // 2. Build the world — river crossings are built then immediately removed
-  //    for any district that was already unlocked in the save
   buildTown();
   buildTraffic();
   spawnPedestrians();
@@ -3067,7 +2728,6 @@ async function boot(){
   gateOldtown    = buildLockGate(-RIVER_X2,BRIDGE_Z, 'oldtown',    'Old Town — buy in city map');
   buildCityPerimeterWall();
 
-  // Remove crossings for already-unlocked districts from the save
   Object.keys(state.unlocked).forEach(key=>{
     if(state.unlocked[key]){
       const gate = {suburbs:()=>gateSuburbs, industrial:()=>gateIndustrial, harbor:()=>gateHarbor, oldtown:()=>gateOldtown}[key];
@@ -3076,7 +2736,6 @@ async function boot(){
     }
   });
 
-  // Apply the saved vehicle mesh
   applyVehicleMesh(state.currentVehicle);
 
   updateDamageUI();
