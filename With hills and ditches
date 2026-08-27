@@ -536,7 +536,11 @@ function makeGroundTexture(){
 // exactly with the actual block grid the buildings are placed on.
 const GROUND_TILE_COUNT = 25;
 const GROUND_SIZE = BLOCK*GROUND_TILE_COUNT;
-const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE,GROUND_SIZE);
+// Enough tessellation to carry gentle terrain (rolling yards, roadside
+// ditches) — displaced later in boot(), once buildings exist, so the
+// flattened pads under them line up correctly.
+const GROUND_SEGMENTS = GROUND_TILE_COUNT*12;
+const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE,GROUND_SIZE, GROUND_SEGMENTS, GROUND_SEGMENTS);
 const groundMat = new THREE.MeshStandardMaterial({ map: makeGroundTexture(), roughness:1 });
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI/2;
@@ -554,6 +558,124 @@ const riverWalls = [];  // {x,z,hx,hz} - permanent impassable river segments
 const boundaryWalls = []; // {x,z,hx,hz} - the wall ringing the whole playable city
 const trafficCars = [];
 const pedestrians = [];
+
+/* =========================================================
+   TERRAIN — two layers. A handful of broad, gentle hills affect the whole
+   city uniformly (roads included — driving over them is the point), plus
+   finer rolling/ditch detail confined to yards and lots. Roads/sidewalks/
+   driveway/building footprints are still flattened relative to whichever
+   hill they're on, so traffic lanes, the A* route the minimap draws, and
+   every (2D, height-blind) collision box keep working — the hills are a
+   smooth height field, not a rewrite of where anything actually is.
+========================================================= */
+function smoothstep01(t){ t=Math.max(0,Math.min(1,t)); return t*t*(3-2*t); }
+
+// Cheap large-wavelength value noise (a handful of summed sine waves) —
+// no need for a real Perlin/simplex implementation for gentle rolling
+// detail. Kept to long wavelengths (see the low frequency multipliers)
+// so it reads as broad undulation rather than choppy per-block bumps.
+function terrainNoise(x,z){
+  return (
+    Math.sin(x*0.010 + 1.7)      + Math.sin(z*0.012 - 0.4) +
+    Math.sin((x+z)*0.007 + 3.1)*0.6 +
+    Math.sin((x-z)*0.008 - 2.2)*0.4
+  ) / 3.0;
+}
+
+// A few named hills scattered through the outer districts, each a smooth
+// dome (zero slope at both the peak and the outer edge, so there's no
+// kink where it meets flat ground) — kept well clear of the shop's block,
+// the rivers/bridges, and the city wall so those stay completely flat.
+const HILLS = [
+  { x: 5*BLOCK,    z: 3*BLOCK,  radius:100, amp:3.4 },  // suburbs
+  { x: -5*BLOCK,   z: -3*BLOCK, radius:100, amp:3.2 },  // industrial
+  { x: 8.5*BLOCK,  z: -2*BLOCK, radius:100, amp:3.0 },  // harbor
+  { x: -8.5*BLOCK, z: 2*BLOCK,  radius:100, amp:3.0 },  // old town
+  { x: 2*BLOCK,    z: 4*BLOCK,  radius:85,  amp:2.2 },  // a smaller one downtown-adjacent
+];
+function bigHillHeight(x,z){
+  let h = 0;
+  for(let i=0;i<HILLS.length;i++){
+    const hl = HILLS[i];
+    const d = Math.hypot(x-hl.x, z-hl.z);
+    if(d < hl.radius){
+      const t = d/hl.radius;
+      const contrib = hl.amp * (0.5 + 0.5*Math.cos(t*Math.PI));
+      if(contrib > h) h = contrib;
+    }
+  }
+  return h;
+}
+
+const TERRAIN_AMPLITUDE = 1.6; // metres of gentle rolling relief in open yards
+const DITCH_AT = 2.4, DITCH_WIDTH = 2.0, DITCH_DEPTH = 0.55; // roadside swale
+const BUILDING_PAD = 3.5; // flat apron kept clear around every building
+
+// Buildings bucketed by block index so the height function can cheaply
+// check "is there a building near this point" without scanning the whole
+// city per vertex. Kept in sync as buildings are registered (see
+// registerBuilding() below) rather than rebuilt afterward, since obstacles
+// placed during world-gen need correct heights immediately too.
+let buildingsByCell = {};
+function registerBuilding(b){
+  buildings.push(b);
+  const key = b.ix+','+b.iz;
+  (buildingsByCell[key] = buildingsByCell[key] || []).push(b);
+}
+
+// Fine local detail — rolling micro-terrain plus the roadside ditch —
+// confined to the lot interior and flattened near buildings. Returns 0
+// on roads/sidewalks so those surfaces only carry the broad hill shape.
+function lotDetailHeight(x,z){
+  const ix = Math.round(x/BLOCK), iz = Math.round(z/BLOCK);
+  const dx = x-ix*BLOCK, dz = z-iz*BLOCK;
+  if(Math.abs(dx) > BLOCK_HALF || Math.abs(dz) > BLOCK_HALF) return 0;
+
+  const edgeDist = BLOCK_HALF - Math.max(Math.abs(dx), Math.abs(dz));
+
+  let h = terrainNoise(x,z) * TERRAIN_AMPLITUDE;
+
+  const dEdge = (edgeDist-DITCH_AT)/DITCH_WIDTH;
+  h += -DITCH_DEPTH * Math.exp(-dEdge*dEdge);
+
+  h *= smoothstep01(edgeDist/1.2);
+
+  const cellBuildings = buildingsByCell[ix+','+iz];
+  if(cellBuildings){
+    for(let i=0;i<cellBuildings.length;i++){
+      const b = cellBuildings[i];
+      const bdx = Math.abs(x-b.x)-b.hx, bdz = Math.abs(z-b.z)-b.hz;
+      const dist = Math.max(bdx, bdz);
+      if(dist < BUILDING_PAD) h *= smoothstep01(dist/BUILDING_PAD);
+    }
+  }
+  return h;
+}
+
+function terrainHeightAt(x,z){
+  // Paved driveways (currently just the shop's) stay flat pavement,
+  // guaranteed, regardless of any hill placement.
+  for(let i=0;i<drivewayZones.length;i++){
+    const d = drivewayZones[i];
+    if(Math.abs(x-d.x)<=d.hx && Math.abs(z-d.z)<=d.hz) return 0;
+  }
+  return bigHillHeight(x,z) + lotDetailHeight(x,z);
+}
+
+// Displaces the ground mesh to match terrainHeightAt() — called from
+// boot() once every building has been registered, so the flattened pads
+// line up with the actual city rather than an empty lot.
+function applyTerrainDisplacement(){
+  const pos = groundGeo.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    const lx = pos.getX(i), ly = pos.getY(i);
+    // Ground is rotated -90° about X after construction, which maps this
+    // local Z displacement to world Y, and local (x,y) to world (x,-z).
+    pos.setZ(i, terrainHeightAt(lx, -ly));
+  }
+  pos.needsUpdate = true;
+  groundGeo.computeVertexNormals();
+}
 
 const palettes = {
   downtown:[0xf2efe6,0xe8e2d2,0x6fb8c4,0x8fcdc2,0xc9d6dc,0xe2836b,0xf0c9a0,0xd8d2c4],
@@ -705,7 +827,7 @@ function addGroup(group){
 }
 
 function buildTower(x,z,hx,hz,height,color){
-  const g=new THREE.Group(); g.position.set(x,0,z);
+  const g=new THREE.Group(); g.position.set(x,terrainHeightAt(x,z),z);
   const wallM=texMat('glass',color,hx,height);
   const concreteM=solidMat(new THREE.Color(color).multiplyScalar(0.78).getHex(),0.9);
   const darkM=solidMat(0x2a2c30,0.6);
@@ -766,7 +888,7 @@ function buildTower(x,z,hx,hz,height,color){
 }
 
 function buildMidrise(x,z,hx,hz,height,color){
-  const g=new THREE.Group(); g.position.set(x,0,z);
+  const g=new THREE.Group(); g.position.set(x,terrainHeightAt(x,z),z);
   const wallM=texMat('glass',color,hx,height);
   const trimColor=new THREE.Color(color).multiplyScalar(0.72).getHex();
   const trimM=solidMat(trimColor,0.8);
@@ -803,7 +925,7 @@ function buildMidrise(x,z,hx,hz,height,color){
 }
 
 function buildHouse(x,z,hx,hz,height,color){
-  const g=new THREE.Group(); g.position.set(x,0,z);
+  const g=new THREE.Group(); g.position.set(x,terrainHeightAt(x,z),z);
   const wallM=texMat('house',color,hx,height);
   const foundM=solidMat(0xb0aa9c,0.9);
   const trimM=solidMat(0xf5f0e8,0.7);
@@ -873,7 +995,7 @@ function buildHouse(x,z,hx,hz,height,color){
 }
 
 function buildWarehouse(x,z,hx,hz,height,color){
-  const g=new THREE.Group(); g.position.set(x,0,z);
+  const g=new THREE.Group(); g.position.set(x,terrainHeightAt(x,z),z);
   const wallM=texMat('industrial',color,hx,height);
   const conM=solidMat(0x9aa0a8,0.9);
   const dkM=solidMat(0x22242a,0.5);
@@ -933,7 +1055,7 @@ function buildWarehouse(x,z,hx,hz,height,color){
 }
 
 function buildHarborBuilding(x,z,hx,hz,height,color){
-  const g=new THREE.Group(); g.position.set(x,0,z);
+  const g=new THREE.Group(); g.position.set(x,terrainHeightAt(x,z),z);
   const wallM=texMat('industrial',color,hx,height);
   const metalM=solidMat(0x7a8488,0.5,0.3);
   const conM=solidMat(0xb0b4b8,0.85);
@@ -971,7 +1093,7 @@ function buildHarborBuilding(x,z,hx,hz,height,color){
 }
 
 function buildOldtownBuilding(x,z,hx,hz,height,color){
-  const g=new THREE.Group(); g.position.set(x,0,z);
+  const g=new THREE.Group(); g.position.set(x,terrainHeightAt(x,z),z);
   const brickM=texMat('house',color,hx,height);
   const stoneM=solidMat(new THREE.Color(color).lerp(new THREE.Color(0xc8c0b0),0.45).getHex(),0.85);
   const darkM=solidMat(0x1a1c20,0.5);
@@ -1081,7 +1203,7 @@ function addCurb(cx,cz){
   ];
   specs.forEach(([px,pz,sx,sz])=>{
     const curb = new THREE.Mesh(new THREE.BoxGeometry(sx, hgt, sz), curbMat);
-    curb.position.set(px, hgt/2, pz);
+    curb.position.set(px, terrainHeightAt(px,pz)+hgt/2, pz);
     curb.receiveShadow = true;
     scene.add(curb);
   });
@@ -1130,11 +1252,11 @@ let shopInfo = null;
 let destMarker = null;
 
 function buildTown(){
+  // Register the shop's footprint before building its mesh so the
+  // terrain-flattening pad is already active when the building positions
+  // itself (same fix applied to every other building below).
+  registerBuilding({x:0, z:0, hx:11, hz:11, height:9, ix:0, iz:0, dist:'downtown', isShop:true});
   shopInfo = makeShopBuilding(0,0);
-  // The shop building itself was never added to the collision list before,
-  // so it was possible to drive straight through it — register it here
-  // just like any other building.
-  buildings.push({x:shopInfo.x, z:shopInfo.z, hx:shopInfo.hx, hz:shopInfo.hz, height:shopInfo.height, ix:0, iz:0, dist:'downtown', isShop:true});
   for(let ix=IX_RANGE[0]; ix<=IX_RANGE[1]; ix++){
     for(let iz=IZ_RANGE[0]; iz<=IZ_RANGE[1]; iz++){
       if(ix===0 && iz===0) continue;
@@ -1167,8 +1289,8 @@ function buildDowntownBlock(cx,cz,ix,iz){
     let bx,bz,hx,hz;
     if(splitAlongX){ bx = cx+segCenter; bz = cz; hx = segHalf; hz = BLOCK_HALF; }
     else { bx = cx; bz = cz+segCenter; hx = BLOCK_HALF; hz = segHalf; }
+    registerBuilding({x:bx,z:bz,hx,hz,height,ix,iz,dist:'downtown'});
     addBuildingMesh(bx,bz,hx,hz,height,color,'flat','glass');
-    buildings.push({x:bx,z:bz,hx,hz,height,ix,iz,dist:'downtown'});
     cursor += segLen;
   });
   const edge = BLOCK_HALF + SIDEWALK_W + 0.35;
@@ -1202,8 +1324,8 @@ function buildSpacedBlock(cx,cz,ix,iz,dist){
   const hz = cfg.hxMin + Math.random()*(cfg.hxMax-cfg.hxMin);
   const height = cfg.heightMin + Math.random()*(cfg.heightMax-cfg.heightMin);
   const color = pal[Math.floor(Math.random()*pal.length)];
+  registerBuilding({x:cx,z:cz,hx,hz,height,ix,iz,dist});
   addBuildingMesh(cx,cz,hx,hz,height,color,cfg.roofStyle,cfg.wallStyle);
-  buildings.push({x:cx,z:cz,hx,hz,height,ix,iz,dist});
 
   const obsCount = Math.random()<0.6 ? 1 : (Math.random()<0.3?2:0);
   for(let k=0;k<obsCount;k++){
@@ -1233,7 +1355,7 @@ function buildParkedCar(x,z,rotY){
   const builders = [buildCarMesh, buildHatchbackMesh, buildSUVMesh, buildPickupMesh];
   const build = builders[Math.floor(Math.random()*builders.length)];
   const mesh = build(colors[Math.floor(Math.random()*colors.length)]);
-  mesh.position.set(x,0,z);
+  mesh.position.set(x,terrainHeightAt(x,z),z);
   mesh.rotation.y = rotY;
   scene.add(mesh);
 }
@@ -1243,7 +1365,8 @@ function addObstacle(x,z){
     { type:'tree', r:0.7, dmg:5, build:buildTree },
     { type:'lamp', r:0.35, dmg:4, build:buildLamp },
     { type:'cone', r:0.45, dmg:2, build:buildCone },
-    { type:'mailbox', r:0.5, dmg:3, build:buildMailbox }
+    { type:'mailbox', r:0.5, dmg:3, build:buildMailbox },
+    { type:'rock', r:0.55, dmg:6, build:buildRock }
   ];
   const t = types[Math.floor(Math.random()*types.length)];
   t.build(x,z);
@@ -1256,7 +1379,7 @@ function buildTree(x,z){
   trunk.position.y=0.8; g.add(trunk);
   const foliage = new THREE.Mesh(new THREE.SphereGeometry(1.0,8,8), new THREE.MeshStandardMaterial({color:0x3e8e5b}));
   foliage.position.y=2.1; g.add(foliage);
-  g.position.set(x,0,z); castAll(g); scene.add(g);
+  g.position.set(x,terrainHeightAt(x,z),z); castAll(g); scene.add(g);
 }
 function buildLamp(x,z){
   const g = new THREE.Group();
@@ -1264,15 +1387,37 @@ function buildLamp(x,z){
   pole.position.y=1.7; g.add(pole);
   const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.28,8,8), new THREE.MeshStandardMaterial({color:0xfff0b0, emissive:0xfff0b0, emissiveIntensity:0.7}));
   bulb.position.y=3.5; g.add(bulb);
-  g.position.set(x,0,z); castAll(g); scene.add(g);
+  g.position.set(x,terrainHeightAt(x,z),z); castAll(g); scene.add(g);
 }
 function buildCone(x,z){
   const cone = new THREE.Mesh(new THREE.ConeGeometry(0.35,0.7,10), new THREE.MeshStandardMaterial({color:0xe3702c}));
-  cone.position.set(x,0.35,z); cone.castShadow=true; scene.add(cone);
+  cone.position.set(x,0.35+terrainHeightAt(x,z),z); cone.castShadow=true; scene.add(cone);
 }
 function buildMailbox(x,z){
   const box = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.9,0.5), new THREE.MeshStandardMaterial({color:0x3464c4}));
-  box.position.set(x,0.6,z); box.castShadow=true; scene.add(box);
+  box.position.set(x,0.6+terrainHeightAt(x,z),z); box.castShadow=true; scene.add(box);
+}
+// Rock outcrop — a cluster of two chunky, irregularly-scaled low-poly
+// stones. flatShading keeps them looking rough-hewn instead of smooth.
+function buildRock(x,z){
+  const g = new THREE.Group();
+  const rockColors = [0x8a8a82,0x7a766c,0x94897c,0x6e6a62];
+  const mat = new THREE.MeshStandardMaterial({color:rockColors[Math.floor(Math.random()*rockColors.length)], roughness:0.95, flatShading:true});
+  const mainR = 0.45+Math.random()*0.35;
+  const main = new THREE.Mesh(new THREE.DodecahedronGeometry(mainR,0), mat);
+  main.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+  main.scale.set(1, 0.6+Math.random()*0.25, 1);
+  main.position.y = mainR*0.42;
+  g.add(main);
+  if(Math.random()<0.6){
+    const smallR = mainR*0.55;
+    const small = new THREE.Mesh(new THREE.DodecahedronGeometry(smallR,0), mat);
+    small.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+    small.position.set(mainR*0.7, smallR*0.35, mainR*0.35);
+    g.add(small);
+  }
+  g.position.set(x,terrainHeightAt(x,z),z);
+  castAll(g); scene.add(g);
 }
 
 const riverCrossings = {};
@@ -1304,11 +1449,20 @@ function buildRiverCrossing(boundaryX, bridgeZ, key){
   }
 
   const railMat = new THREE.MeshStandardMaterial({ color:0xd9433a, roughness:0.6 });
+  const postMat = new THREE.MeshStandardMaterial({ color:0x8a8f96, roughness:0.5, metalness:0.4 });
   [-1,1].forEach(side=>{
     const rail = new THREE.Mesh(new THREE.BoxGeometry(RIVER_HALF_WIDTH*2+2, 0.5, 0.25), railMat);
     rail.position.set(boundaryX, 0.55, bridgeZ + side*BRIDGE_HALF_LEN);
     rail.castShadow = true;
     add(rail);
+    // Guardrail support posts — turns the railing from a floating bar
+    // into something that reads as an actual bridge guardrail.
+    for(let t=-1;t<=1;t+=0.5){
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.7,6), postMat);
+      post.position.set(boundaryX + t*(RIVER_HALF_WIDTH-0.3), 0.5, bridgeZ + side*BRIDGE_HALF_LEN);
+      post.castShadow = true;
+      add(post);
+    }
   });
   [-1,1].forEach(side=>{
     const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,2.4,8), new THREE.MeshStandardMaterial({color:0x6b6b6b}));
@@ -1342,6 +1496,16 @@ function buildRiverCrossing(boundaryX, bridgeZ, key){
   });
 
   riverCrossings[key] = { meshes, wallEntries:[wallEntryNorth, wallEntrySouth], boundaryX };
+
+  // A scatter of rocks along the bank, clear of the bridge approach, for
+  // a creek-bed feel. Purely decorative — no collision registered.
+  for(let i=0;i<4;i++){
+    const side = Math.random()<0.5 ? -1 : 1;
+    const rz = TOWN_MIN_Z + Math.random()*(TOWN_MAX_Z-TOWN_MIN_Z);
+    if(Math.abs(rz-bridgeZ) < BRIDGE_HALF_LEN+3) continue;
+    const rx = boundaryX + side*(RIVER_HALF_WIDTH+wallT+0.8+Math.random()*1.3);
+    buildRock(rx, rz);
+  }
 }
 
 function removeCrossing(key){
@@ -1711,7 +1875,7 @@ function buildTrafficLight(x,z,axis){
     dots.push(dot);
   });
   castAll(g);
-  g.position.set(x,0,z);
+  g.position.set(x,terrainHeightAt(x,z),z);
   scene.add(g);
   trafficLightProps.push({ axis, dots });
 }
@@ -1884,7 +2048,7 @@ function applyVehicleMesh(key){
   player.wheels = built.wheels;
   player.pizzaBox = built.pizzaBox;
   player.pizzaBox.visible = !!state.order;
-  player.mesh.position.set(player.x, 0, player.z);
+  player.mesh.position.set(player.x, terrainHeightAt(player.x,player.z), player.z);
   player.mesh.rotation.y = player.angle;
   scene.add(player.mesh);
 }
@@ -2350,7 +2514,8 @@ function update(dt){
     }
   }
 
-  player.mesh.position.set(player.x, 0, player.z);
+  const groundY = terrainHeightAt(player.x, player.z);
+  player.mesh.position.set(player.x, groundY, player.z);
   player.mesh.rotation.y = player.angle;
   const wheelSpin = player.speed*dt*1.6;
   player.wheels.forEach(w=>{ w.rotation.x += wheelSpin; });
@@ -2372,13 +2537,16 @@ function update(dt){
   const navTarget = state.order ? state.order.dropPoint : (shopInfo && shopInfo.driveway ? shopInfo.driveway : shopInfo);
   if(navTarget) updateOrderUI(navTarget);
 
+  // Camera and guide arrow ride the same terrain height the player does,
+  // so they stay anchored to the bike over hills instead of drifting
+  // relative to it.
   const yaw = player.angle + camState.yaw;
   const horizDist = camState.dist*Math.cos(camState.pitch);
-  const camY = 1.2 + camState.dist*Math.sin(camState.pitch);
+  const camY = groundY + 1.2 + camState.dist*Math.sin(camState.pitch);
   const cfx = Math.sin(yaw), cfz = Math.cos(yaw);
   const desired = new THREE.Vector3(player.x-cfx*horizDist, camY, player.z-cfz*horizDist);
   camera.position.lerp(desired, Math.min(1, dt*9));
-  const lookAt = new THREE.Vector3(player.x, 1.1, player.z);
+  const lookAt = new THREE.Vector3(player.x, groundY + 1.1, player.z);
   camera.lookAt(lookAt);
 
   [destMarker].forEach(m=>{
@@ -2390,7 +2558,7 @@ function update(dt){
   if(navTarget){
     const tdx = navTarget.x-player.x, tdz = navTarget.z-player.z;
     const bearing = Math.atan2(tdx, tdz);
-    guideArrow.position.set(player.x, 3.8 + Math.sin(clock.elapsedTime*3)*0.18, player.z);
+    guideArrow.position.set(player.x, groundY + 3.8 + Math.sin(clock.elapsedTime*3)*0.18, player.z);
     guideArrow.rotation.y = bearing + Math.PI;
   }
 
@@ -2944,6 +3112,10 @@ async function boot(){
   }
 
   buildTown();
+  // Displace the ground now that every building (and the shop's driveway)
+  // is registered, so flattened pads under buildings and the driveway
+  // line up correctly with the terrain.
+  applyTerrainDisplacement();
   buildTraffic();
   spawnPedestrians();
   buildRiverCrossing(RIVER_X, BRIDGE_Z, 'suburbs');
