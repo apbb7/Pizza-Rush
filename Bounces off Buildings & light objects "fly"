@@ -554,7 +554,8 @@ scene.add(ground);
    WORLD DATA: buildings, obstacles, gates, traffic
 ========================================================= */
 const buildings = [];   // {x,z,hx,hz,height,mesh}
-const obstacles  = [];  // {x,z,r,dmg,type}
+const obstacles  = [];  // {x,z,r,dmg,type,weight,light,mesh}
+const flyingDebris = []; // light obstacles currently tumbling through the air after a hit
 const drivewayZones = []; // {x,z,hx,hz} - paved driveways that count as full-speed road
 const gates      = [];  // {x,z,hx,hz,mesh,id}
 const riverWalls = [];  // {x,z,hx,hz} - permanent impassable river segments
@@ -1397,15 +1398,15 @@ function buildParkedCar(x,z,rotY){
 
 function addObstacle(x,z){
   const types = [
-    { type:'tree', r:0.7, dmg:5, build:buildTree },
-    { type:'lamp', r:0.35, dmg:4, build:buildLamp },
-    { type:'cone', r:0.45, dmg:2, build:buildCone },
-    { type:'mailbox', r:0.5, dmg:3, build:buildMailbox },
-    { type:'rock', r:0.55, dmg:6, build:buildRock }
+    { type:'tree',    r:0.7,  dmg:5,   weight:80,  build:buildTree },
+    { type:'lamp',    r:0.35, dmg:4,   weight:60,  build:buildLamp },
+    { type:'cone',    r:0.45, dmg:1,   weight:1,   build:buildCone,    light:true },
+    { type:'mailbox', r:0.5,  dmg:1.5, weight:3,   build:buildMailbox, light:true },
+    { type:'rock',    r:0.55, dmg:6,   weight:150, build:buildRock }
   ];
   const t = types[Math.floor(Math.random()*types.length)];
-  t.build(x,z);
-  obstacles.push({x,z,r:t.r,dmg:t.dmg,type:t.type});
+  const mesh = t.build(x,z);
+  obstacles.push({x,z,r:t.r,dmg:t.dmg,type:t.type,weight:t.weight,light:!!t.light,mesh});
 }
 
 // Two species (rounded deciduous / conical evergreen), each with random
@@ -1459,10 +1460,12 @@ function buildLamp(x,z){
 function buildCone(x,z){
   const cone = new THREE.Mesh(new THREE.ConeGeometry(0.35,0.7,10), new THREE.MeshStandardMaterial({color:0xe3702c}));
   cone.position.set(x,0.35+terrainHeightAt(x,z),z); cone.castShadow=true; scene.add(cone);
+  return cone;
 }
 function buildMailbox(x,z){
   const box = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.9,0.5), new THREE.MeshStandardMaterial({color:0x3464c4}));
   box.position.set(x,0.6+terrainHeightAt(x,z),z); box.castShadow=true; scene.add(box);
+  return box;
 }
 // Rock outcrop — a cluster of two chunky, irregularly-scaled low-poly
 // stones. flatShading keeps them looking rough-hewn instead of smooth.
@@ -2387,14 +2390,34 @@ function resolveBoxCollision(px,pz,box,radius){
 
 function applyDamage(amount){
   const stats = baseStats();
-  const speedFrac = Math.min(1, Math.abs(player.speed)/Math.max(1,stats.maxSpeed));
-  // Crashes hit harder now: overall damage scaled up, and even a slow bump
-  // still costs at least half its damage (was a 0.35 floor) instead of
-  // being almost free at low speed.
-  const scaled = amount * 1.75 * Math.max(0.5, speedFrac) * stats.armor;
+  // Speed now swings damage much more widely — crawling into something
+  // costs relatively little, but a fast hit costs noticeably more than
+  // it used to (floor 0.3x, ceiling 1.4x, up from a narrow 0.5x-1.0x).
+  const speedFrac = Math.abs(player.speed)/Math.max(1,stats.maxSpeed);
+  const speedMul = Math.max(0.3, Math.min(1.4, speedFrac));
+  const scaled = amount * 2.2 * speedMul * stats.armor;
   state.damage = Math.max(0, state.damage - scaled);
   updateDamageUI();
   if(state.damage<=0) breakdown();
+}
+
+// Sends a light obstacle (cone, mailbox) tumbling away from the impact.
+// Launch speed scales with how fast the player was going and inversely
+// with the object's weight, so a cone (weight 1) flies much farther than
+// a mailbox (weight 3) hit at the same speed.
+const DEBRIS_GRAVITY = 14;
+function launchDebris(o, impactSpeed){
+  if(!o.mesh) return;
+  const dirX = Math.sin(player.angle), dirZ = Math.cos(player.angle);
+  const launchSpeed = Math.min(16, Math.abs(impactSpeed)*1.3 / Math.max(1,o.weight));
+  flyingDebris.push({
+    mesh:o.mesh,
+    vx: dirX*launchSpeed + (Math.random()-0.5)*1.5,
+    vy: 3+Math.random()*2,
+    vz: dirZ*launchSpeed + (Math.random()-0.5)*1.5,
+    avx:(Math.random()-0.5)*10, avy:(Math.random()-0.5)*10, avz:(Math.random()-0.5)*10,
+    life:0, maxLife:1.6
+  });
 }
 
 const BREAKDOWN_FEE = 5;
@@ -2476,6 +2499,24 @@ function update(dt){
     const dot = Math.sin(player.angle)*player.speed*nx + Math.cos(player.angle)*player.speed*nz;
     if(dot < 0) player.speed += dot;
   }
+  // A real bounce-back off solid things (buildings, walls, heavy
+  // obstacles) — reverses and dampens speed so the car visibly recoils
+  // instead of just stopping dead or being able to creep forward through
+  // it by holding the throttle. Not used for traffic (vehicles) or light
+  // obstacles, which get their own, gentler responses below.
+  function applyBounce(factor){
+    player.speed = -player.speed * factor;
+  }
+  // An immediate, guaranteed physical push backward (2.5-4m, along the
+  // direction the car was actually facing) on top of whatever the box
+  // resolution already did — makes a hard impact snap the car back
+  // right away instead of only relying on the speed reversal to drift it
+  // back over the next few frames.
+  function applyKnockback(){
+    const kb = 2.5 + Math.random()*1.5;
+    player.x -= Math.sin(player.angle)*kb;
+    player.z -= Math.cos(player.angle)*kb;
+  }
 
   for(let i=0;i<buildings.length;i++){
     const b = buildings[i];
@@ -2484,7 +2525,7 @@ function update(dt){
     if(res.hit){
       player.x += res.nx*res.push; player.z += res.nz*res.push;
       cancelIntoWall(res.nx,res.nz);
-      if(!collided && state.invuln<=0){ applyDamage(8); state.invuln=0.6; toast('Crashed into a building! 🏢','bad'); }
+      if(!collided && state.invuln<=0){ applyDamage(8); state.invuln=0.6; toast('Crashed into a building! 🏢','bad'); applyBounce(0.55); applyKnockback(); }
       collided = true;
     }
   }
@@ -2494,7 +2535,7 @@ function update(dt){
     if(res.hit){
       player.x += res.nx*res.push; player.z += res.nz*res.push;
       cancelIntoWall(res.nx,res.nz);
-      if(!collided && state.invuln<=0){ applyDamage(9); state.invuln=0.6; toast('That area is locked!','bad'); }
+      if(!collided && state.invuln<=0){ applyDamage(9); state.invuln=0.6; toast('That area is locked!','bad'); applyBounce(0.55); }
       collided = true;
     }
   });
@@ -2505,7 +2546,7 @@ function update(dt){
     if(res.hit){
       player.x += res.nx*res.push; player.z += res.nz*res.push;
       cancelIntoWall(res.nx,res.nz);
-      if(!collided && state.invuln<=0){ applyDamage(9); state.invuln=0.6; toast("Can't cross the river here — find the bridge!",'bad'); }
+      if(!collided && state.invuln<=0){ applyDamage(9); state.invuln=0.6; toast("Can't cross the river here — find the bridge!",'bad'); applyBounce(0.55); }
       collided = true;
     }
   }
@@ -2516,7 +2557,7 @@ function update(dt){
     if(res.hit){
       player.x += res.nx*res.push; player.z += res.nz*res.push;
       cancelIntoWall(res.nx,res.nz);
-      if(!collided && state.invuln<=0){ applyDamage(9); state.invuln=0.6; toast("That's the edge of town!",'bad'); }
+      if(!collided && state.invuln<=0){ applyDamage(9); state.invuln=0.6; toast("That's the edge of town!",'bad'); applyBounce(0.55); }
       collided = true;
     }
   }
@@ -2528,12 +2569,48 @@ function update(dt){
       const dist = Math.hypot(dx,dz)||0.001;
       const nx=(dx/dist), nz=(dz/dist);
       player.x += nx*(rad-dist); player.z += nz*(rad-dist);
-      cancelIntoWall(nx,nz);
-      if(!collided && state.invuln<=0){ applyDamage(o.dmg); state.invuln=0.5; toast('Bumped a '+o.type+'!','bad'); }
-      collided = true;
+      if(o.light){
+        // Cones, mailboxes: barely register on the car — a bit of damage,
+        // a light speed check, and the object goes flying off instead of
+        // stopping you. No bounce (matches "unless it's a vehicle" logic:
+        // this isn't solid enough to bounce off of either).
+        if(state.invuln<=0){
+          launchDebris(o, player.speed);
+          applyDamage(o.dmg);
+          state.invuln = 0.4;
+          toast('Sent a '+o.type+' flying!','bad');
+        }
+        player.speed *= 0.92;
+        obstacles.splice(i,1); i--;
+      } else {
+        cancelIntoWall(nx,nz);
+        if(!collided && state.invuln<=0){ applyDamage(o.dmg); state.invuln=0.5; toast('Bumped a '+o.type+'!','bad'); applyBounce(0.55); }
+        collided = true;
+      }
     }
   }
   if(collided) player.speed *= 0.65;
+
+  // Animate any flying debris (cones/mailboxes knocked away) — simple
+  // projectile motion with gravity and tumbling rotation, removed once it
+  // lands or its lifespan runs out.
+  for(let i=flyingDebris.length-1;i>=0;i--){
+    const d = flyingDebris[i];
+    d.life += dt;
+    d.vy -= DEBRIS_GRAVITY*dt;
+    d.mesh.position.x += d.vx*dt;
+    d.mesh.position.y += d.vy*dt;
+    d.mesh.position.z += d.vz*dt;
+    d.mesh.rotation.x += d.avx*dt;
+    d.mesh.rotation.y += d.avy*dt;
+    d.mesh.rotation.z += d.avz*dt;
+    const groundY = terrainHeightAt(d.mesh.position.x, d.mesh.position.z);
+    if(d.mesh.position.y <= groundY || d.life > d.maxLife){
+      scene.remove(d.mesh);
+      flyingDebris.splice(i,1);
+    }
+  }
+
   lightClock += dt;
   updateTrafficLightVisuals();
   const lightPhase = currentLightPhase();
@@ -2585,6 +2662,7 @@ function update(dt){
       player.speed *= 0.65;
       if(state.invuln<=0){
         applyDamage(c.dmg); state.invuln=0.6;
+        applyKnockback();
         toast(c.type==='truck' ? 'Crashed into a truck! 🚚' : 'Crashed into traffic! 🚗', 'bad');
       }
     }
