@@ -541,7 +541,10 @@ const GROUND_SIZE = BLOCK*GROUND_TILE_COUNT;
 // flattened pads under them line up correctly.
 const GROUND_SEGMENTS = GROUND_TILE_COUNT*12;
 const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE,GROUND_SIZE, GROUND_SEGMENTS, GROUND_SEGMENTS);
-const groundMat = new THREE.MeshStandardMaterial({ map: makeGroundTexture(), roughness:1 });
+// vertexColors lets us paint broad, organic tonal variation over the
+// repeating tile texture (see applyTerrainDisplacement) so the ground
+// doesn't read as one pattern stamped identically at every block.
+const groundMat = new THREE.MeshStandardMaterial({ map: makeGroundTexture(), roughness:1, vertexColors:true });
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI/2;
 ground.receiveShadow = true;
@@ -662,18 +665,41 @@ function terrainHeightAt(x,z){
   return bigHillHeight(x,z) + lotDetailHeight(x,z);
 }
 
-// Displaces the ground mesh to match terrainHeightAt() — called from
-// boot() once every building has been registered, so the flattened pads
-// line up with the actual city rather than an empty lot.
+// Large-wavelength noise used only for ground color variation — a
+// different frequency/phase than the height noise so tonal patches don't
+// just mirror the hills, which would look too tidy/deliberate.
+function groundColorNoise(x,z){
+  return (
+    Math.sin(x*0.006 - 0.9) + Math.sin(z*0.0075 + 2.1) +
+    Math.sin((x-z)*0.004 + 1.2)*0.6
+  ) / 2.6;
+}
+
+// Displaces the ground mesh to match terrainHeightAt() and paints broad
+// tonal variation across it — called from boot() once every building has
+// been registered, so the flattened pads line up with the actual city.
 function applyTerrainDisplacement(){
   const pos = groundGeo.attributes.position;
+  const colors = new Float32Array(pos.count*3);
   for(let i=0;i<pos.count;i++){
     const lx = pos.getX(i), ly = pos.getY(i);
+    const wx = lx, wz = -ly;
     // Ground is rotated -90° about X after construction, which maps this
     // local Z displacement to world Y, and local (x,y) to world (x,-z).
-    pos.setZ(i, terrainHeightAt(lx, -ly));
+    pos.setZ(i, terrainHeightAt(wx, wz));
+
+    // Subtle multiplicative tint (roughly ±12%) so the same repeating
+    // tile texture reads as patches of drier/lusher ground and slightly
+    // aged/fresher asphalt instead of one pattern stamped everywhere.
+    const cn = groundColorNoise(wx,wz); // -1..1
+    const tint = 1.0 + cn*0.12;
+    const warmth = cn*0.035;
+    colors[i*3+0] = tint + warmth;
+    colors[i*3+1] = tint;
+    colors[i*3+2] = tint - warmth;
   }
   pos.needsUpdate = true;
+  groundGeo.setAttribute('color', new THREE.BufferAttribute(colors,3));
   groundGeo.computeVertexNormals();
 }
 
@@ -813,6 +839,15 @@ function mkRoundedBox(group, ox, baseY, oz, w, h, d, mat, radius){
 }
 function solidMat(hex, rough=0.88, metal=0){
   return new THREE.MeshStandardMaterial({color:hex,roughness:rough,metalness:metal});
+}
+// Nudges a palette color's hue/lightness/saturation by a small random
+// amount so buildings drawing the same palette entry don't come out
+// visually identical — cheap (one Color object) and reads as natural
+// material variation rather than a repeated swatch.
+function jitterColor(hex){
+  const c = new THREE.Color(hex);
+  c.offsetHSL((Math.random()-0.5)*0.03, (Math.random()-0.5)*0.08, (Math.random()-0.5)*0.06);
+  return c.getHex();
 }
 function texMat(style, color, hx, height){
   const repX=Math.max(1,Math.round((hx*2)/2.2));
@@ -1285,7 +1320,7 @@ function buildDowntownBlock(cx,cz,ix,iz){
     const segHalf = segLen/2;
     const segCenter = cursor + segHalf;
     const height = Math.random()<0.12 ? 70+Math.random()*55 : 14 + Math.random()*46;
-    const color = pal[Math.floor(Math.random()*pal.length)];
+    const color = jitterColor(pal[Math.floor(Math.random()*pal.length)]);
     let bx,bz,hx,hz;
     if(splitAlongX){ bx = cx+segCenter; bz = cz; hx = segHalf; hz = BLOCK_HALF; }
     else { bx = cx; bz = cz+segCenter; hx = BLOCK_HALF; hz = segHalf; }
@@ -1323,7 +1358,7 @@ function buildSpacedBlock(cx,cz,ix,iz,dist){
   const hx = cfg.hxMin + Math.random()*(cfg.hxMax-cfg.hxMin);
   const hz = cfg.hxMin + Math.random()*(cfg.hxMax-cfg.hxMin);
   const height = cfg.heightMin + Math.random()*(cfg.heightMax-cfg.heightMin);
-  const color = pal[Math.floor(Math.random()*pal.length)];
+  const color = jitterColor(pal[Math.floor(Math.random()*pal.length)]);
   registerBuilding({x:cx,z:cz,hx,hz,height,ix,iz,dist});
   addBuildingMesh(cx,cz,hx,hz,height,color,cfg.roofStyle,cfg.wallStyle);
 
@@ -1373,20 +1408,52 @@ function addObstacle(x,z){
   obstacles.push({x,z,r:t.r,dmg:t.dmg,type:t.type});
 }
 
+// Two species (rounded deciduous / conical evergreen), each with random
+// trunk height, foliage size, and a scale + rotation jitter on the whole
+// group — breaks up what was one identical clip-art tree repeated at
+// every spawn point.
+const TREE_GREENS = [0x3e8e5b,0x357c4f,0x4a9c66,0x2f7048,0x468a5a];
 function buildTree(x,z){
   const g = new THREE.Group();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.22,1.6,6), new THREE.MeshStandardMaterial({color:0x6b4226}));
-  trunk.position.y=0.8; g.add(trunk);
-  const foliage = new THREE.Mesh(new THREE.SphereGeometry(1.0,8,8), new THREE.MeshStandardMaterial({color:0x3e8e5b}));
-  foliage.position.y=2.1; g.add(foliage);
+  const trunkH = 1.3+Math.random()*0.7;
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15+Math.random()*0.06,0.19+Math.random()*0.08,trunkH,6), new THREE.MeshStandardMaterial({color:0x6b4226}));
+  trunk.position.y=trunkH/2; g.add(trunk);
+  const fol = TREE_GREENS[Math.floor(Math.random()*TREE_GREENS.length)];
+  const folMat = new THREE.MeshStandardMaterial({color:fol});
+  if(Math.random()<0.3){
+    // Evergreen — a single conical crown.
+    const conH = 1.9+Math.random()*0.9;
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.7+Math.random()*0.3,conH,8), folMat);
+    cone.position.y = trunkH+conH*0.42;
+    g.add(cone);
+  } else {
+    // Deciduous — a main canopy plus 1-2 smaller offset clumps so the
+    // silhouette isn't a single perfect sphere every time.
+    const baseR = 0.8+Math.random()*0.4;
+    const main = new THREE.Mesh(new THREE.SphereGeometry(baseR,8,7), folMat);
+    main.position.y = trunkH+baseR*0.7;
+    g.add(main);
+    const clumps = 1+Math.floor(Math.random()*2);
+    for(let i=0;i<clumps;i++){
+      const r = baseR*(0.5+Math.random()*0.3);
+      const clump = new THREE.Mesh(new THREE.SphereGeometry(r,6,6), folMat);
+      const ang = Math.random()*Math.PI*2;
+      clump.position.set(Math.cos(ang)*baseR*0.55, trunkH+baseR*0.7+(Math.random()-0.5)*baseR*0.6, Math.sin(ang)*baseR*0.55);
+      g.add(clump);
+    }
+  }
+  g.rotation.y = Math.random()*Math.PI*2;
+  const scale = 0.82+Math.random()*0.4;
+  g.scale.set(scale,scale,scale);
   g.position.set(x,terrainHeightAt(x,z),z); castAll(g); scene.add(g);
 }
 function buildLamp(x,z){
   const g = new THREE.Group();
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,3.4,6), new THREE.MeshStandardMaterial({color:0x333333}));
-  pole.position.y=1.7; g.add(pole);
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.28,8,8), new THREE.MeshStandardMaterial({color:0xfff0b0, emissive:0xfff0b0, emissiveIntensity:0.7}));
-  bulb.position.y=3.5; g.add(bulb);
+  const poleH = 3.1+Math.random()*0.6;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,poleH,6), new THREE.MeshStandardMaterial({color:0x333333}));
+  pole.position.y=poleH/2; g.add(pole);
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.26+Math.random()*0.05,8,8), new THREE.MeshStandardMaterial({color:0xfff0b0, emissive:0xfff0b0, emissiveIntensity:0.7}));
+  bulb.position.y=poleH+0.1; g.add(bulb);
   g.position.set(x,terrainHeightAt(x,z),z); castAll(g); scene.add(g);
 }
 function buildCone(x,z){
@@ -1563,8 +1630,30 @@ function buildLockGate(x, bridgeZ, id, label){
 
 let gateSuburbs, gateIndustrial, gateHarbor, gateOldtown;
 
+// Rough masonry-block texture for the city wall — replaces a flat solid
+// gray box with something that reads as stacked stone.
+function makeStoneWallTexture(){
+  const w=128,h=64;
+  const cnv=document.createElement('canvas'); cnv.width=w; cnv.height=h;
+  const ctx=cnv.getContext('2d');
+  ctx.fillStyle='#4d4740'; ctx.fillRect(0,0,w,h);
+  const rows=4, cols=6, cw=w/cols, rh=h/rows;
+  for(let r=0;r<rows;r++){
+    const offset = (r%2)*(cw/2);
+    for(let c=-1;c<=cols;c++){
+      const bx=c*cw+offset, by=r*rh;
+      const shade = 0.75+Math.random()*0.4;
+      ctx.fillStyle = `rgb(${Math.floor(108*shade)},${Math.floor(100*shade)},${Math.floor(90*shade)})`;
+      ctx.fillRect(bx+1.2, by+1.2, cw-2.4, rh-2.4);
+    }
+  }
+  const tex = new THREE.CanvasTexture(cnv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
 function buildCityPerimeterWall(){
-  const wallMat = new THREE.MeshStandardMaterial({ color:0x5c5650, roughness:0.9 });
+  const stoneTex = makeStoneWallTexture();
   const capMat = new THREE.MeshStandardMaterial({ color:0x847c6e, roughness:0.7 });
   const wallH = 3.2, wallT = 1.2;
   const segs = [
@@ -1574,12 +1663,16 @@ function buildCityPerimeterWall(){
     { x:TOWN_MAX_X, z:0, sx:wallT, sz:TOWN_MAX_Z-TOWN_MIN_Z }
   ];
   segs.forEach(s=>{
+    const tex = stoneTex.clone();
+    tex.needsUpdate = true;
+    tex.repeat.set(Math.max(1,Math.round(s.sx/6)), Math.max(1,Math.round(wallH/2)));
+    const wallMat = new THREE.MeshStandardMaterial({ map:tex, roughness:0.92 });
     const wall = new THREE.Mesh(new THREE.BoxGeometry(s.sx, wallH, s.sz), wallMat);
-    wall.position.set(s.x, wallH/2, s.z);
+    wall.position.set(s.x, terrainHeightAt(s.x,s.z)+wallH/2, s.z);
     wall.castShadow = true; wall.receiveShadow = true;
     scene.add(wall);
     const cap = new THREE.Mesh(new THREE.BoxGeometry(s.sx+0.3, 0.26, s.sz+0.3), capMat);
-    cap.position.set(s.x, wallH+0.13, s.z);
+    cap.position.set(s.x, terrainHeightAt(s.x,s.z)+wallH+0.13, s.z);
     cap.castShadow = true;
     scene.add(cap);
     boundaryWalls.push({ x:s.x, z:s.z, hx:s.sx/2, hz:s.sz/2 });
@@ -1888,18 +1981,24 @@ function buildPedestrianMesh(){
   const skin = skinTones[Math.floor(Math.random()*skinTones.length)];
   const shirt = shirtColors[Math.floor(Math.random()*shirtColors.length)];
   const pants = pantsColors[Math.floor(Math.random()*pantsColors.length)];
-  const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.12,0.8,6), new THREE.MeshStandardMaterial({color:pants}));
+  // Build (torso/limb thickness) varies independently of overall height so
+  // people don't all read as the same mannequin at different zoom levels.
+  const build = 0.85+Math.random()*0.3;
+  const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.13*build,0.12*build,0.8,6), new THREE.MeshStandardMaterial({color:pants}));
   legs.position.y=0.4; g.add(legs);
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.15,0.55,8), new THREE.MeshStandardMaterial({color:shirt}));
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.18*build,0.15*build,0.55,8), new THREE.MeshStandardMaterial({color:shirt}));
   torso.position.y=1.05; g.add(torso);
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.16,10,10), new THREE.MeshStandardMaterial({color:skin}));
   head.position.y=1.45; g.add(head);
   const armMat = new THREE.MeshStandardMaterial({color:skin});
   [-0.22,0.22].forEach(sx=>{
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.055,0.5,6), armMat);
-    arm.position.set(sx,1.02,0);
+    arm.position.set(sx*build,1.02,0);
     g.add(arm);
   });
+  // Overall height variation on top of build.
+  const height = 0.9+Math.random()*0.2;
+  g.scale.set(1,height,1);
   castAll(g);
   return g;
 }
