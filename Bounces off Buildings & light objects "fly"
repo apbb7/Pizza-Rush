@@ -151,6 +151,11 @@
     color:var(--cheese);opacity:.85;margin:14px 0 4px;text-align:left;font-weight:800;}
 
   .stat-readout{display:flex;gap:8px;margin:4px 0 16px;}
+  .decal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;}
+  .decal-swatch{background:rgba(0,0,0,.25);border:2px solid rgba(255,255,255,.1);border-radius:10px;
+    padding:8px 4px;text-align:center;cursor:pointer;font-size:11px;font-weight:700;color:var(--cream);}
+  .decal-swatch .dv{font-size:22px;line-height:1;margin-bottom:4px;}
+  .decal-swatch.selected{border-color:var(--cheese);background:rgba(244,194,77,.18);}
   .stat-chip{flex:1;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.08);
     border-radius:10px;padding:8px 6px;text-align:center;}
   .stat-chip .v{font-size:18px;font-weight:800;color:var(--cheese);}
@@ -245,6 +250,8 @@
     <div class="stat-readout" id="stat-readout"></div>
     <div class="garage-section-label">🚗 Vehicles</div>
     <div id="vehicle-list"></div>
+    <div class="garage-section-label">🎨 Decals</div>
+    <div id="decal-list"></div>
     <div class="garage-section-label">🔩 Upgrades</div>
     <div id="shop-list"></div>
     <button class="btn" id="shop-close">Back to the Streets</button>
@@ -315,8 +322,9 @@ const state = {
   paused: false,
   order: null,       // {buildingRef, freshness, basePay}
   unlocked: { suburbs:false, industrial:false, harbor:false, oldtown:false },
-  ownedVehicles: { scooter:true, sportbike:false, pizzacar:false },
+  ownedVehicles: { scooter:true, sportbike:false, pizzacar:false, cargotrike:false, deliveryvan:false, musclecar:false },
   currentVehicle: 'scooter',
+  decal: 'none',
   invuln: 0,          // collision cooldown timer
   keys: { f:false, b:false, l:false, r:false },
   upgrades: {
@@ -355,7 +363,8 @@ async function saveProgress(){
         insulation: state.upgrades.insulation.level
       },
       ownedVehicles:  state.ownedVehicles,
-      currentVehicle: state.currentVehicle
+      currentVehicle: state.currentVehicle,
+      decal:          state.decal
     }));
   } catch(e){}
 }
@@ -378,6 +387,7 @@ async function loadAndApply(){
     if(sv.ownedVehicles) Object.assign(state.ownedVehicles, sv.ownedVehicles);
     if(sv.currentVehicle && state.ownedVehicles[sv.currentVehicle])
       state.currentVehicle = sv.currentVehicle;
+    if(sv.decal) state.decal = sv.decal;
   } catch(e){}
 }
 
@@ -1748,7 +1758,7 @@ function buildPickupMesh(color){
   const cab = new THREE.Mesh(new THREE.BoxGeometry(1.85,0.9,1.7), new THREE.MeshStandardMaterial({color, roughness:0.45, metalness:0.25}));
   cab.position.set(0,0.75,1.15); g.add(cab);
   const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.7,0.5,0.08), new THREE.MeshStandardMaterial({color:0x223344, roughness:0.3}));
-  windshield.position.set(0,1.15,1.95); g.add(windshield);
+  windshield.position.set(0,1.15,2.03); g.add(windshield);
   const bedFloor = new THREE.Mesh(new THREE.BoxGeometry(1.8,0.35,2.0), new THREE.MeshStandardMaterial({color, roughness:0.55, metalness:0.15}));
   bedFloor.position.set(0,0.5,-1.05); g.add(bedFloor);
   const bedWallMat = new THREE.MeshStandardMaterial({color, roughness:0.55, metalness:0.15});
@@ -1774,7 +1784,7 @@ function buildTruckMesh(color){
   const cab = new THREE.Mesh(new THREE.BoxGeometry(2.1,1.7,2.0), new THREE.MeshStandardMaterial({color, roughness:0.5, metalness:0.2}));
   cab.position.set(0,1.0,2.3); g.add(cab);
   const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.9,0.7,0.1), new THREE.MeshStandardMaterial({color:0x223344, roughness:0.3}));
-  windshield.position.set(0,1.55,3.25); g.add(windshield);
+  windshield.position.set(0,1.55,3.34); g.add(windshield);
   const cargo = new THREE.Mesh(new THREE.BoxGeometry(2.3,2.4,4.6), new THREE.MeshStandardMaterial({color:0xe8e6df, roughness:0.75}));
   cargo.position.set(0,1.6,-1.0); g.add(cargo);
   const wheelMat = new THREE.MeshStandardMaterial({color:0x111111});
@@ -2136,11 +2146,196 @@ function buildPizzaCarMesh(){
   return { mesh:g, wheels:[], pizzaBox };
 }
 
+// Cargo Trike — cheap three-wheeler with an open cargo box on back.
+// Trades top speed for handling and sturdiness.
+function buildCargoTrikeMesh(){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.75,0.4,1.3), new THREE.MeshStandardMaterial({color:0xf4c24d, roughness:0.45, metalness:0.2}));
+  body.position.set(0,0.5,0.35); g.add(body);
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.2,0.5), new THREE.MeshStandardMaterial({color:0x222222}));
+  seat.position.set(0,0.78,0.05); g.add(seat);
+  const handlebarPost = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,0.55,6), new THREE.MeshStandardMaterial({color:0x444444}));
+  handlebarPost.position.set(0,0.88,0.9); g.add(handlebarPost);
+  const handlebar = new THREE.Mesh(new THREE.BoxGeometry(0.55,0.06,0.06), new THREE.MeshStandardMaterial({color:0x333333}));
+  handlebar.position.set(0,1.15,0.9); g.add(handlebar);
+  const cargoBox = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.55,0.75), new THREE.MeshStandardMaterial({color:0xcb3a2a, roughness:0.5}));
+  cargoBox.position.set(0,0.58,-0.72); g.add(cargoBox);
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(0.95,0.08,0.8), new THREE.MeshStandardMaterial({color:0xa82e20}));
+  lid.position.set(0,0.85,-0.72); g.add(lid);
+  const wheelMat = new THREE.MeshStandardMaterial({color:0x111111});
+  const wF = new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.3,0.2,10), wheelMat);
+  wF.rotation.z=Math.PI/2; wF.position.set(0,0.3,1.0); g.add(wF);
+  const wBL = new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.3,0.2,10), wheelMat);
+  wBL.rotation.z=Math.PI/2; wBL.position.set(0.55,0.3,-0.8); g.add(wBL);
+  const wBR = new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.3,0.2,10), wheelMat);
+  wBR.rotation.z=Math.PI/2; wBR.position.set(-0.55,0.3,-0.8); g.add(wBR);
+  const pizzaBox = new THREE.Mesh(new THREE.BoxGeometry(0.55,0.18,0.55), new THREE.MeshStandardMaterial({color:0xf4c24d, emissive:0xf4c24d, emissiveIntensity:0.3}));
+  pizzaBox.position.set(0,1.02,-0.72); pizzaBox.visible=false; g.add(pizzaBox);
+  const headlight = new THREE.Mesh(new THREE.SphereGeometry(0.08,8,8), new THREE.MeshStandardMaterial({color:0xfff7c0, emissive:0xfff7c0, emissiveIntensity:0.8}));
+  headlight.position.set(0,0.55,1.02); g.add(headlight);
+  castAll(g);
+  return { mesh:g, wheels:[wF,wBL,wBR], pizzaBox };
+}
+
+// Delivery Van — tall boxy body, the tankiest and best-insulated option,
+// but slow to accelerate and clumsy to turn.
+function buildDeliveryVanMesh(){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.05,2.0,3.9), new THREE.MeshStandardMaterial({color:0xf5f0e6, roughness:0.5, metalness:0.15}));
+  body.position.y=1.05; g.add(body);
+  const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.9,0.55,0.08), new THREE.MeshStandardMaterial({color:0x223344, roughness:0.3}));
+  windshield.position.set(0,1.62,2.03); windshield.rotation.x=-0.12; g.add(windshield);
+  // Racing-stripe-style band embedded through the body's own centerline
+  // (matches the sport bike's stripe technique) rather than laid flush on
+  // the surface, so it can't ever land exactly coplanar with it.
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.07,0.42,3.92), new THREE.MeshStandardMaterial({color:0xe3402c, roughness:0.5}));
+  stripe.position.set(0,0.6,0); g.add(stripe);
+  const wheelMat = new THREE.MeshStandardMaterial({color:0x111111});
+  const vanWheels=[];
+  [[1.08,1.25],[-1.08,1.25],[1.08,-1.35],[-1.08,-1.35]].forEach(([wx,wz])=>{
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,0.34,10), wheelMat);
+    w.rotation.z=Math.PI/2; w.position.set(wx,0.4,wz); g.add(w); vanWheels.push(w);
+  });
+  const signPost = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,0.35,6), new THREE.MeshStandardMaterial({color:0x333333}));
+  signPost.position.set(0,2.2,0.2); g.add(signPost);
+  const pizzaBox = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.32,0.6), new THREE.MeshStandardMaterial({color:0xf4c24d, emissive:0xf4c24d, emissiveIntensity:0.35}));
+  pizzaBox.position.set(0,2.5,0.2); pizzaBox.visible=false; g.add(pizzaBox);
+  const headlights = new THREE.Mesh(new THREE.BoxGeometry(1.7,0.2,0.06), new THREE.MeshStandardMaterial({color:0xfff7c0, emissive:0xfff7c0, emissiveIntensity:0.7}));
+  headlights.position.set(0,0.9,1.97); g.add(headlights);
+  castAll(g);
+  return { mesh:g, wheels:vanWheels, pizzaBox };
+}
+
+// Muscle Car — low, wide, fastest of the fleet by far, but the most
+// fragile and the hardest to keep pointed the right way.
+function buildMuscleCarMesh(){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.95,0.55,3.9), new THREE.MeshStandardMaterial({color:0x1b1f2e, roughness:0.25, metalness:0.6}));
+  body.position.y=0.42; g.add(body);
+  const hood = new THREE.Mesh(new THREE.BoxGeometry(1.6,0.12,1.3), new THREE.MeshStandardMaterial({color:0x1b1f2e, roughness:0.2, metalness:0.6}));
+  hood.position.set(0,0.68,1.2); g.add(hood);
+  const scoop = new THREE.Mesh(new THREE.BoxGeometry(0.4,0.14,0.5), new THREE.MeshStandardMaterial({color:0x111111, roughness:0.4}));
+  scoop.position.set(0,0.78,1.4); g.add(scoop);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.5,0.42,1.5), new THREE.MeshStandardMaterial({color:0x223344, roughness:0.2, metalness:0.3}));
+  cabin.position.set(0,0.86,-0.15); g.add(cabin);
+  const spoiler = new THREE.Mesh(new THREE.BoxGeometry(1.7,0.06,0.3), new THREE.MeshStandardMaterial({color:0x1b1f2e, roughness:0.3, metalness:0.5}));
+  spoiler.position.set(0,0.85,-1.75); g.add(spoiler);
+  const spoilerLegMat = new THREE.MeshStandardMaterial({color:0x111111});
+  [-0.6,0.6].forEach(sx=>{
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.3,0.08), spoilerLegMat);
+    leg.position.set(sx,0.68,-1.75); g.add(leg);
+  });
+  const wheelMat = new THREE.MeshStandardMaterial({color:0x0a0a0a});
+  const muscleWheels=[];
+  [[0.95,-1.15],[-0.95,-1.15],[0.95,1.15],[-0.95,1.15]].forEach(([wx,wz])=>{
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.38,0.38,0.3,12), wheelMat);
+    w.rotation.z=Math.PI/2; w.position.set(wx,0.38,wz); g.add(w); muscleWheels.push(w);
+  });
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.3,0.57,3.7), new THREE.MeshStandardMaterial({color:0xf4c24d}));
+  stripe.position.set(0,0.42,0); g.add(stripe);
+  const headlights = new THREE.Mesh(new THREE.BoxGeometry(1.7,0.14,0.06), new THREE.MeshStandardMaterial({color:0xfff7c0, emissive:0xfff7c0, emissiveIntensity:0.8}));
+  headlights.position.set(0,0.5,1.97); g.add(headlights);
+  const pizzaBox = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.16,0.5), new THREE.MeshStandardMaterial({color:0xcb3a2a}));
+  pizzaBox.position.set(0,1.1,-0.15); pizzaBox.visible=false; g.add(pizzaBox);
+  castAll(g);
+  return { mesh:g, wheels:muscleWheels, pizzaBox };
+}
+
 const vehicleDefs = {
-  scooter:  { name:'🛵 Pizza Scooter', cost:0,   maxSpeed:16, accel:14, turnRate:2.4, armor:1.0,  decayMul:1.0,  build:buildScooterMesh },
-  sportbike:{ name:'🏍️ Sport Bike',    cost:70,  maxSpeed:22, accel:18, turnRate:2.7, armor:0.92, decayMul:1.0,  build:buildSportBikeMesh },
-  pizzacar: { name:'🚗 Pizza Car',     cost:180, maxSpeed:30, accel:16, turnRate:1.8, armor:0.7,  decayMul:0.82, build:buildPizzaCarMesh }
+  scooter:    { name:'🛵 Pizza Scooter', cost:0,   maxSpeed:16, accel:14, turnRate:2.4, armor:1.0,  decayMul:1.0,  build:buildScooterMesh },
+  cargotrike: { name:'🛺 Cargo Trike',   cost:40,  maxSpeed:15, accel:13, turnRate:3.1, armor:0.85, decayMul:1.0,  build:buildCargoTrikeMesh },
+  sportbike:  { name:'🏍️ Sport Bike',    cost:70,  maxSpeed:22, accel:18, turnRate:2.7, armor:0.92, decayMul:1.0,  build:buildSportBikeMesh },
+  pizzacar:   { name:'🚗 Pizza Car',     cost:180, maxSpeed:30, accel:16, turnRate:1.8, armor:0.7,  decayMul:0.82, build:buildPizzaCarMesh },
+  deliveryvan:{ name:'🚐 Delivery Van',  cost:260, maxSpeed:26, accel:13, turnRate:1.6, armor:0.5,  decayMul:0.65, build:buildDeliveryVanMesh },
+  musclecar:  { name:'🏁 Muscle Car',    cost:320, maxSpeed:36, accel:22, turnRate:1.5, armor:1.2,  decayMul:1.1,  build:buildMuscleCarMesh }
 };
+
+// ----- Decals -----
+// A small flag-style plate mounted beside the pizza box rack (a spot every
+// vehicle already keeps clear, since the box itself proves it's open air)
+// rather than trying to fit a hood/roof decal to six different body
+// shapes — sidesteps needing six more sets of hand-tuned mount points.
+const DECAL_DEFS = [
+  { id:'none',    name:'No Decal' },
+  { id:'stripe',  name:'Racing Stripe' },
+  { id:'flames',  name:'Flames' },
+  { id:'pizza',   name:'Pizza Logo' },
+  { id:'checker', name:'Checkered' },
+  { id:'bolt',    name:'Lightning Bolt' }
+];
+function makeDecalTexture(type){
+  const w=256,h=160;
+  const cnv=document.createElement('canvas'); cnv.width=w; cnv.height=h;
+  const ctx=cnv.getContext('2d');
+  ctx.clearRect(0,0,w,h);
+  if(type==='stripe'){
+    ctx.fillStyle='#ffffff'; ctx.fillRect(w*0.36,0,w*0.10,h);
+    ctx.fillStyle='#e3402c'; ctx.fillRect(w*0.48,0,w*0.07,h);
+  } else if(type==='flames'){
+    for(let i=0;i<4;i++){
+      const cx=w*0.18+i*w*0.22, base=h*0.92;
+      ctx.fillStyle='#ff8a3d';
+      ctx.beginPath();
+      ctx.moveTo(cx-16,base);
+      ctx.quadraticCurveTo(cx-24,base-50,cx-4,base-88);
+      ctx.quadraticCurveTo(cx+2,base-62,cx+12,base-74);
+      ctx.quadraticCurveTo(cx+22,base-36,cx+16,base);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#ffd23d';
+      ctx.beginPath();
+      ctx.moveTo(cx-7,base);
+      ctx.quadraticCurveTo(cx-10,base-30,cx-1,base-52);
+      ctx.quadraticCurveTo(cx+5,base-30,cx+7,base);
+      ctx.closePath(); ctx.fill();
+    }
+  } else if(type==='pizza'){
+    ctx.save(); ctx.translate(w/2,h/2);
+    const r=h*0.42;
+    ctx.fillStyle='#f4c24d';
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,r,-0.55,0.55); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#c9962f'; ctx.lineWidth=3; ctx.stroke();
+    ctx.fillStyle='#e3402c';
+    for(let i=0;i<5;i++){
+      const a=-0.4+i*0.2, rr=r*0.55;
+      ctx.beginPath(); ctx.arc(Math.cos(a)*rr,Math.sin(a)*rr,r*0.07,0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  } else if(type==='checker'){
+    const cell=h/4;
+    for(let cx=0; cx<w; cx+=cell){
+      for(let cy=0; cy<h; cy+=cell){
+        if(Math.round((cx/cell)+(cy/cell))%2===0){
+          ctx.fillStyle='#1b1f2e'; ctx.fillRect(cx,cy,cell,cell);
+        }
+      }
+    }
+  } else if(type==='bolt'){
+    ctx.fillStyle='#ffd23d';
+    ctx.beginPath();
+    ctx.moveTo(w*0.58,0); ctx.lineTo(w*0.34,h*0.52); ctx.lineTo(w*0.48,h*0.52);
+    ctx.lineTo(w*0.28,h); ctx.lineTo(w*0.68,h*0.46); ctx.lineTo(w*0.5,h*0.46);
+    ctx.closePath(); ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(cnv);
+  return tex;
+}
+function attachDecal(){
+  if(player.decalMesh){ player.mesh.remove(player.decalMesh); player.decalMesh = null; }
+  if(state.decal === 'none' || !player.pizzaBox) return;
+  const tex = makeDecalTexture(state.decal);
+  const mat = new THREE.MeshBasicMaterial({ map:tex, transparent:true, side:THREE.DoubleSide, depthWrite:false });
+  const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.55,0.34), mat);
+  const p = player.pizzaBox.position;
+  plate.position.set(p.x+0.36, p.y, p.z);
+  plate.renderOrder = 5;
+  player.mesh.add(plate);
+  player.decalMesh = plate;
+}
+function applyDecal(id){
+  state.decal = id;
+  attachDecal();
+  saveProgress();
+}
 
 function applyVehicleMesh(key){
   const def = vehicleDefs[key];
@@ -2153,6 +2348,7 @@ function applyVehicleMesh(key){
   player.mesh.position.set(player.x, terrainHeightAt(player.x,player.z), player.z);
   player.mesh.rotation.y = player.angle;
   scene.add(player.mesh);
+  attachDecal();
 }
 
 // Spawn (and respawn after a breakdown) on the shop's driveway itself,
@@ -2161,7 +2357,7 @@ function applyVehicleMesh(key){
 const SHOP_DRIVEWAY_X = ((0-11) + (0-(BLOCK_HALF+SIDEWALK_W+3))) / 2;
 const SHOP_DRIVEWAY_Z = 0;
 
-const player = { x:SHOP_DRIVEWAY_X, z:SHOP_DRIVEWAY_Z, angle:-Math.PI/2, speed:0, steerInput:0, smoothFriction:1.0, mesh:null, wheels:[], pizzaBox:null };
+const player = { x:SHOP_DRIVEWAY_X, z:SHOP_DRIVEWAY_Z, angle:-Math.PI/2, speed:0, steerInput:0, smoothFriction:1.0, mesh:null, wheels:[], pizzaBox:null, decalMesh:null };
 applyVehicleMesh(state.currentVehicle);
 
 function buildGuideArrow(){
@@ -3128,7 +3324,8 @@ function renderVehicles(){
     const v = vehicleDefs[key];
     const owned = state.ownedVehicles[key];
     const selected = state.currentVehicle===key;
-    const desc = `Top ${Math.round(v.maxSpeed*3.4)} mph &middot; Handling ${v.turnRate.toFixed(1)} &middot; Armor +${Math.round((1-v.armor)*100)}%`;
+    const armorPct = Math.round((1-v.armor)*100);
+    const desc = `Top ${Math.round(v.maxSpeed*3.4)} mph &middot; Handling ${v.turnRate.toFixed(1)} &middot; Armor ${armorPct>=0?'+':''}${armorPct}%`;
     const row = document.createElement('div');
     row.className = 'shop-row';
     let btnHtml;
@@ -3175,9 +3372,29 @@ function renderVehicles(){
   });
 }
 
+function renderDecals(){
+  const list = document.getElementById('decal-list');
+  list.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'decal-grid';
+  DECAL_DEFS.forEach(d=>{
+    const swatch = document.createElement('div');
+    swatch.className = 'decal-swatch' + (state.decal===d.id ? ' selected' : '');
+    swatch.innerHTML = `<div class="dv">${d.id==='none'?'🚫':'🎨'}</div>${d.name}`;
+    swatch.addEventListener('click', ()=>{
+      applyDecal(d.id);
+      toast(d.id==='none' ? 'Decal removed' : d.name+' applied!', 'good');
+      renderDecals();
+    });
+    grid.appendChild(swatch);
+  });
+  list.appendChild(grid);
+}
+
 document.getElementById('shop-btn').addEventListener('click', ()=>{
   state.paused = true;
   renderVehicles();
+  renderDecals();
   renderShop();
   document.getElementById('shop-overlay').classList.remove('hidden');
 });
@@ -3274,6 +3491,7 @@ async function boot(){
         if(sv.ownedVehicles) Object.assign(state.ownedVehicles, sv.ownedVehicles);
         if(sv.currentVehicle && state.ownedVehicles[sv.currentVehicle])
           state.currentVehicle = sv.currentVehicle;
+        if(sv.decal) state.decal = sv.decal;
         hasSave = true;
       }
     } catch(e){}
