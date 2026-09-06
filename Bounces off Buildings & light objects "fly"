@@ -59,6 +59,11 @@
   .compass-arrow{transition:transform .1s linear;display:inline-block;transform-origin:50% 50%;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));}
   .dist-text{font-size:13px;opacity:.85;}
 
+  .rival-panel{position:absolute;top:80px;right:14px;
+    min-width:170px;text-align:center;padding:6px 12px;}
+  .rival-row{font-size:12.5px;white-space:nowrap;}
+  .rival-row b{color:#d4b8ff;}
+
   .minimap-panel{position:absolute;bottom:18px;left:14px;padding:0;
     background:#fff;border-radius:10px;overflow:hidden;
     box-shadow:0 2px 8px rgba(0,0,0,.35),0 0 0 1px rgba(0,0,0,.12);
@@ -199,6 +204,11 @@
     </div>
   </div>
 
+  <div class="panel rival-panel">
+    <div class="rival-row">🏆 You <b id="rival-you">0</b> &middot; Rico's <b id="rival-them">0</b></div>
+    <div class="bar-track" style="margin:3px auto 0;"><div id="rival-timer-fill" class="bar-fill" style="width:100%;background:#8a5a9c;"></div></div>
+  </div>
+
   <div class="panel minimap-panel">
     <canvas id="minimap" width="260" height="175"></canvas>
   </div>
@@ -227,6 +237,8 @@
     <div class="tagline">Hot pizzas. Cold deadlines. One scooter.</div>
     <div class="instructions">
       <div>🍕 <b>Pick up</b> orders on the driveway outside Tony's Pizza Shop — a glowing green beacon marks the spot, even through buildings. The shop itself is solid, so pull up alongside it rather than through it.</div>
+      <div>📦 <b>Capacity</b> depends on your vehicle — a scooter carries one pizza at a time, a Delivery Van loads up to four in a single stop. Each pizza has its own address and its own freshness clock.</div>
+      <div>🏎️ <b>Rico's Pizza</b> is out delivering too — you'll see their purple car (and a dot on the map) racing around the city. Every couple minutes your deliveries are compared: outdeliver them for a cash bonus, fall behind and they take a cut.</div>
       <div>🧭 <b>Follow the arrow</b> above your bike and the red beacon — they always point toward your shop or drop-off.</div>
       <div>⏱️ <b>Deliver</b> before the freshness meter hits zero — fresher pizza pays better.</div>
       <div>🚗 <b>Traffic</b> will brake for you if you're in its way, but don't push your luck — and watch out for buildings, too. Break down and you'll pay a repair fee to get back on the road.</div>
@@ -320,7 +332,7 @@ const state = {
   damage: 100,
   running: false,
   paused: false,
-  order: null,       // {buildingRef, freshness, basePay}
+  orders: [],        // active deliveries: {dest, dropPoint, freshness, basePay, marker}
   unlocked: { suburbs:false, industrial:false, harbor:false, oldtown:false },
   ownedVehicles: { scooter:true, sportbike:false, pizzacar:false, cargotrike:false, deliveryvan:false, musclecar:false },
   currentVehicle: 'scooter',
@@ -1295,7 +1307,6 @@ function makeBeacon(x,z,color,emoji,baseHeight){
 }
 
 let shopInfo = null;
-let destMarker = null;
 
 function buildTown(){
   // Register the shop's footprint before building its mesh so the
@@ -2146,6 +2157,43 @@ function buildPizzaCarMesh(){
   return { mesh:g, wheels:[], pizzaBox };
 }
 
+// Rico's Pizza — the rival driver's car. Deliberately distinct livery
+// (purple/gold vs the player's red) plus a floating name tag so it's
+// unmistakable at a glance, whichever vehicle the player is driving.
+function buildRivalCarMesh(){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.75,0.68,3.3), new THREE.MeshStandardMaterial({color:0x3a2d6b, roughness:0.4, metalness:0.3}));
+  body.position.y=0.55; g.add(body);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.35,0.55,1.65), new THREE.MeshStandardMaterial({color:0x1b1630, roughness:0.25}));
+  cabin.position.set(0,1.05,-0.15); g.add(cabin);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.28,0.71,3.1), new THREE.MeshStandardMaterial({color:0xf4c24d}));
+  stripe.position.set(0,0.55,0); g.add(stripe);
+  const wheelMat = new THREE.MeshStandardMaterial({color:0x111111});
+  const wheels=[];
+  [[0.92,-1.05],[-0.92,-1.05],[0.92,1.05],[-0.92,1.05]].forEach(([wx,wz])=>{
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.34,0.3,10), wheelMat);
+    w.rotation.z=Math.PI/2; w.position.set(wx,0.34,wz); g.add(w); wheels.push(w);
+  });
+  const headlights = new THREE.Mesh(new THREE.BoxGeometry(1.45,0.16,0.06), new THREE.MeshStandardMaterial({color:0xfff7c0, emissive:0xfff7c0, emissiveIntensity:0.7}));
+  headlights.position.set(0,0.5,1.70); g.add(headlights);
+  const cnv=document.createElement('canvas'); cnv.width=200; cnv.height=56;
+  const ctx=cnv.getContext('2d');
+  ctx.fillStyle='rgba(24,18,44,0.88)';
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(2,2,196,52,12); else ctx.rect(2,2,196,52);
+  ctx.fill();
+  ctx.fillStyle='#d4b8ff'; ctx.font='bold 24px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText("🏎️ RICO'S", 100, 28);
+  const tex = new THREE.CanvasTexture(cnv);
+  const label = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, depthTest:false, transparent:true}));
+  label.scale.set(2.6,0.73,1);
+  label.position.y=2.4;
+  label.renderOrder=902;
+  g.add(label);
+  castAll(g);
+  return { mesh:g, wheels };
+}
+
 // Cargo Trike — cheap three-wheeler with an open cargo box on back.
 // Trades top speed for handling and sturdiness.
 function buildCargoTrikeMesh(){
@@ -2242,13 +2290,14 @@ function buildMuscleCarMesh(){
 }
 
 const vehicleDefs = {
-  scooter:    { name:'🛵 Pizza Scooter', cost:0,   maxSpeed:16, accel:14, turnRate:2.4, armor:1.0,  decayMul:1.0,  build:buildScooterMesh },
-  cargotrike: { name:'🛺 Cargo Trike',   cost:40,  maxSpeed:15, accel:13, turnRate:3.1, armor:0.85, decayMul:1.0,  build:buildCargoTrikeMesh },
-  sportbike:  { name:'🏍️ Sport Bike',    cost:70,  maxSpeed:22, accel:18, turnRate:2.7, armor:0.92, decayMul:1.0,  build:buildSportBikeMesh },
-  pizzacar:   { name:'🚗 Pizza Car',     cost:180, maxSpeed:30, accel:16, turnRate:1.8, armor:0.7,  decayMul:0.82, build:buildPizzaCarMesh },
-  deliveryvan:{ name:'🚐 Delivery Van',  cost:260, maxSpeed:26, accel:13, turnRate:1.6, armor:0.5,  decayMul:0.65, build:buildDeliveryVanMesh },
-  musclecar:  { name:'🏁 Muscle Car',    cost:320, maxSpeed:36, accel:22, turnRate:1.5, armor:1.2,  decayMul:1.1,  build:buildMuscleCarMesh }
+  scooter:    { name:'🛵 Pizza Scooter', cost:0,   maxSpeed:16, accel:14, turnRate:2.4, armor:1.0,  decayMul:1.0,  capacity:1, build:buildScooterMesh },
+  cargotrike: { name:'🛺 Cargo Trike',   cost:40,  maxSpeed:15, accel:13, turnRate:3.1, armor:0.85, decayMul:1.0,  capacity:2, build:buildCargoTrikeMesh },
+  sportbike:  { name:'🏍️ Sport Bike',    cost:70,  maxSpeed:22, accel:18, turnRate:2.7, armor:0.92, decayMul:1.0,  capacity:1, build:buildSportBikeMesh },
+  pizzacar:   { name:'🚗 Pizza Car',     cost:180, maxSpeed:30, accel:16, turnRate:1.8, armor:0.7,  decayMul:0.82, capacity:2, build:buildPizzaCarMesh },
+  deliveryvan:{ name:'🚐 Delivery Van',  cost:260, maxSpeed:26, accel:13, turnRate:1.6, armor:0.5,  decayMul:0.65, capacity:4, build:buildDeliveryVanMesh },
+  musclecar:  { name:'🏁 Muscle Car',    cost:320, maxSpeed:36, accel:22, turnRate:1.5, armor:1.2,  decayMul:1.1,  capacity:1, build:buildMuscleCarMesh }
 };
+function currentCapacity(){ return vehicleDefs[state.currentVehicle].capacity; }
 
 // ----- Decals -----
 // A small flag-style plate mounted beside the pizza box rack (a spot every
@@ -2344,7 +2393,7 @@ function applyVehicleMesh(key){
   player.mesh = built.mesh;
   player.wheels = built.wheels;
   player.pizzaBox = built.pizzaBox;
-  player.pizzaBox.visible = !!state.order;
+  player.pizzaBox.visible = state.orders.length>0;
   player.mesh.position.set(player.x, terrainHeightAt(player.x,player.z), player.z);
   player.mesh.rotation.y = player.angle;
   scene.add(player.mesh);
@@ -2486,9 +2535,10 @@ function curbsideMarkerPos(b){
   return { x:blockCenterX, z:pz };
 }
 
-function pickDestination(){
+function pickDestination(excludeBuildings){
   const pool = buildings.filter(b=>{
     if(b.isShop) return false; // never deliver back to the shop itself
+    if(excludeBuildings && excludeBuildings.has(b)) return false; // no two active orders to the same address
     if(b.dist==='suburbs' && !state.unlocked.suburbs) return false;
     if(b.dist==='industrial' && !state.unlocked.industrial) return false;
     if(b.dist==='harbor' && !state.unlocked.harbor) return false;
@@ -2498,20 +2548,34 @@ function pickDestination(){
   return pool[Math.floor(Math.random()*pool.length)];
 }
 
-function startOrder(){
-  const dest = pickDestination();
-  if(!dest){ toast("No deliveries available yet!", null); return; }
-  const dropPoint = curbsideMarkerPos(dest);
-  if(destMarker) scene.remove(destMarker);
-  destMarker = makeBeacon(dropPoint.x, dropPoint.z, 0xe3402c, '🏠', 0);
-  const dist = Math.hypot(dest.x-0, dest.z-0);
-  const basePay = 6 + dist*0.16;
-  state.order = { dest, dropPoint, freshness:100, basePay };
+// Fills up to the current vehicle's capacity in one visit — a delivery
+// van pulling in loads up to 4 pizzas at once rather than making the
+// player shuttle back and forth for each one.
+function fillOrders(){
+  const cap = currentCapacity();
+  const already = new Set(state.orders.map(o=>o.dest));
+  let added = 0;
+  while(state.orders.length < cap){
+    const dest = pickDestination(already);
+    if(!dest){ break; }
+    already.add(dest);
+    const dropPoint = curbsideMarkerPos(dest);
+    const marker = makeBeacon(dropPoint.x, dropPoint.z, 0xe3402c, '🏠', 0);
+    const dist = Math.hypot(dest.x-0, dest.z-0);
+    const basePay = 6 + dist*0.16;
+    state.orders.push({ dest, dropPoint, freshness:100, basePay, marker });
+    added++;
+  }
+  if(added===0){
+    if(state.orders.length===0) toast("No deliveries available yet!", null);
+    return;
+  }
   player.pizzaBox.visible = true;
-  document.getElementById('order-line').textContent = '🏠 Delivering to: '+districtLabel(dest.dist)+' block';
+  const label = state.orders.length>1 ? `🏠 Delivering ${state.orders.length} pizzas` : '🏠 Delivering to: '+districtLabel(state.orders[0].dest.dist)+' block';
+  document.getElementById('order-line').textContent = label;
   document.getElementById('fresh-track').style.display = 'block';
   document.getElementById('compass-row').style.display = 'flex';
-  toast('Order picked up! Get it there fresh 🔥', 'good');
+  toast(added>1 ? `Loaded up ${added} orders! Get them there fresh 🔥` : 'Order picked up! Get it there fresh 🔥', 'good');
 }
 
 function districtLabel(d){
@@ -2520,26 +2584,38 @@ function districtLabel(d){
   return '🏙️ Downtown';
 }
 
-function completeOrder(){
-  const o = state.order;
-  const freshBonus = o.freshness>=85 ? 1.3 : 1.0;
-  const pay = o.basePay * (o.freshness/100) * freshBonus;
+// Returns the active order that most needs attention right now (lowest
+// freshness) — this is what the guide arrow, compass, and freshness bar
+// all track, so they stay pointed at the same thing.
+function mostUrgentOrder(){
+  if(state.orders.length===0) return null;
+  let best = state.orders[0];
+  for(let i=1;i<state.orders.length;i++) if(state.orders[i].freshness < best.freshness) best = state.orders[i];
+  return best;
+}
+
+function completeOrder(order){
+  const freshBonus = order.freshness>=85 ? 1.3 : 1.0;
+  const pay = order.basePay * (order.freshness/100) * freshBonus;
   state.money += pay;
   state.deliveries++;
+  rivalRound.playerCount++;
   toast('Delivered! +$'+pay.toFixed(2)+(freshBonus>1?'  🔥 Hot & Fresh bonus!':''), 'good');
-  if(destMarker){ scene.remove(destMarker); destMarker=null; }
-  state.order = null;
-  player.pizzaBox.visible = false;
-  resetOrderUI();
+  if(order.marker){ scene.remove(order.marker); order.marker=null; }
+  const idx = state.orders.indexOf(order);
+  if(idx>=0) state.orders.splice(idx,1);
+  if(state.orders.length===0){ player.pizzaBox.visible = false; resetOrderUI(); }
+  else document.getElementById('order-line').textContent = state.orders.length>1 ? `🏠 Delivering ${state.orders.length} pizzas` : '🏠 Delivering to: '+districtLabel(state.orders[0].dest.dist)+' block';
   saveProgress();
 }
 
-function ruinOrder(){
-  toast('Your pizza went cold and was ruined! 🥶', 'bad');
-  if(destMarker){ scene.remove(destMarker); destMarker=null; }
-  state.order = null;
-  player.pizzaBox.visible = false;
-  resetOrderUI();
+function ruinOrder(order){
+  toast('A pizza went cold and was ruined! 🥶', 'bad');
+  if(order.marker){ scene.remove(order.marker); order.marker=null; }
+  const idx = state.orders.indexOf(order);
+  if(idx>=0) state.orders.splice(idx,1);
+  if(state.orders.length===0){ player.pizzaBox.visible = false; resetOrderUI(); }
+  else document.getElementById('order-line').textContent = state.orders.length>1 ? `🏠 Delivering ${state.orders.length} pizzas` : '🏠 Delivering to: '+districtLabel(state.orders[0].dest.dist)+' block';
 }
 
 function resetOrderUI(){
@@ -2626,7 +2702,8 @@ function breakdown(){
   document.getElementById('breakdown-fee').textContent =
     '-$'+fee.toFixed(2) + (fee<BREAKDOWN_FEE ? ' (that was all you had)' : '');
   document.getElementById('breakdown-overlay').classList.remove('hidden');
-  if(state.order){ ruinOrder(); }
+  // Breaking down ruins everything you were carrying, not just one order.
+  state.orders.slice().forEach(o=>ruinOrder(o));
 }
 
 document.getElementById('breakdown-btn').addEventListener('click', ()=>{
@@ -2809,6 +2886,14 @@ function update(dt){
 
   lightClock += dt;
   updateTrafficLightVisuals();
+
+  updateRival(dt);
+  rivalRound.timer -= dt;
+  if(rivalRound.timer<=0){
+    settleRivalRound();
+    rivalRound.timer = rivalRound.duration;
+  }
+
   const lightPhase = currentLightPhase();
   for(let i=0;i<trafficCars.length;i++){
     const c = trafficCars[i];
@@ -2893,22 +2978,25 @@ function update(dt){
   const wheelSpin = player.speed*dt*1.6;
   player.wheels.forEach(w=>{ w.rotation.x += wheelSpin; });
 
-  if(!state.order && shopInfo && shopInfo.driveway){
+  if(state.orders.length < currentCapacity() && shopInfo && shopInfo.driveway){
     const dw = shopInfo.driveway;
     const margin = 2.5; // a little slack around the driveway strip so it isn't pixel-precise
-    if(Math.abs(player.x-dw.x)<=dw.hx+margin && Math.abs(player.z-dw.z)<=dw.hz+margin){ startOrder(); }
+    if(Math.abs(player.x-dw.x)<=dw.hx+margin && Math.abs(player.z-dw.z)<=dw.hz+margin){ fillOrders(); }
   }
-  if(state.order){
-    state.order.freshness -= stats.decay*dt;
-    if(state.order.freshness<=0){ ruinOrder(); }
+  // Iterate a snapshot since completing/ruining an order splices it out
+  // of state.orders mid-loop.
+  for(const order of state.orders.slice()){
+    order.freshness -= stats.decay*dt;
+    if(order.freshness<=0){ ruinOrder(order); }
     else{
-      const dp = state.order.dropPoint;
+      const dp = order.dropPoint;
       const dx = player.x-dp.x, dz = player.z-dp.z;
-      if(Math.hypot(dx,dz) < 5.5){ completeOrder(); }
+      if(Math.hypot(dx,dz) < 5.5){ completeOrder(order); }
     }
   }
-  const navTarget = state.order ? state.order.dropPoint : (shopInfo && shopInfo.driveway ? shopInfo.driveway : shopInfo);
-  if(navTarget) updateOrderUI(navTarget);
+  const urgentOrder = mostUrgentOrder();
+  const navTarget = urgentOrder ? urgentOrder.dropPoint : (shopInfo && shopInfo.driveway ? shopInfo.driveway : shopInfo);
+  if(navTarget) updateOrderUI(navTarget, urgentOrder);
 
   // Camera and guide arrow ride the same terrain height the player does,
   // so they stay anchored to the bike over hills instead of drifting
@@ -2922,7 +3010,8 @@ function update(dt){
   const lookAt = new THREE.Vector3(player.x, groundY + 1.1, player.z);
   camera.lookAt(lookAt);
 
-  [destMarker].forEach(m=>{
+  state.orders.forEach(o=>{
+    const m = o.marker;
     if(!m) return;
     m.userData.bob += dt*2;
     m.userData.sprite.position.y = m.userData.baseY + Math.sin(m.userData.bob)*0.4;
@@ -2938,10 +3027,10 @@ function update(dt){
   updateHUD();
 }
 
-function updateOrderUI(target){
-  if(state.order){
-    document.getElementById('fresh-fill').style.width = Math.max(0,state.order.freshness)+'%';
-    document.getElementById('fresh-fill').style.background = state.order.freshness>50?'#f4c24d':'#e3402c';
+function updateOrderUI(target, order){
+  if(order){
+    document.getElementById('fresh-fill').style.width = Math.max(0,order.freshness)+'%';
+    document.getElementById('fresh-fill').style.background = order.freshness>50?'#f4c24d':'#e3402c';
   }
   const dx = target.x-player.x, dz = target.z-player.z;
   const distM = Math.hypot(dx,dz);
@@ -3019,10 +3108,129 @@ function aStar(sc,sr,ec,er){
   return null;
 }
 
+/* =========================================================
+   RIVAL DRIVER — an AI competitor that actually drives the road network
+   (reusing the same A* used for the minimap route) picking up and
+   delivering its own pizzas in parallel with the player. No collision
+   with the player/traffic/buildings — it's a scripted path-follower, not
+   a physically simulated car, which keeps it from ever getting stuck.
+========================================================= */
+const rival = {
+  x: SHOP_DRIVEWAY_X, z: 0, angle: -Math.PI/2, speed: 0,
+  mesh: null, wheels: [],
+  path: null, pathIndex: 0,
+  mode: 'pausedAtShop', pauseTimer: 2.0,
+  cruiseSpeed: 13
+};
+const rivalRound = { playerCount:0, rivalCount:0, timer:100, duration:100 };
+
+function spawnRival(){
+  const built = buildRivalCarMesh();
+  rival.mesh = built.mesh;
+  rival.wheels = built.wheels;
+  rival.mesh.position.set(rival.x, terrainHeightAt(rival.x,rival.z), rival.z);
+  rival.mesh.rotation.y = rival.angle;
+  scene.add(rival.mesh);
+}
+
+function computeRoadPath(fromX,fromZ,toX,toZ){
+  const sn = worldToNode(fromX,fromZ), en = worldToNode(toX,toZ);
+  const nodePath = aStar(sn.c,sn.r,en.c,en.r);
+  if(!nodePath) return null;
+  return nodePath.map(n=>({x:nodeX(n.c), z:nodeZ(n.r)}));
+}
+
+function settleRivalRound(){
+  const p = rivalRound.playerCount, r = rivalRound.rivalCount;
+  if(p > r){
+    const bonus = 10 + (p-r)*4;
+    state.money += bonus;
+    toast(`🏆 You beat Rico's Pizza this round! +$${bonus.toFixed(2)}`, 'good');
+  } else if(r > p){
+    const penalty = Math.min(state.money, 8 + (r-p)*3);
+    state.money -= penalty;
+    toast(`😤 Rico's Pizza beat you this round! -$${penalty.toFixed(2)}`, 'bad');
+  } else {
+    toast("🤝 Tied with Rico's Pizza this round.", null);
+  }
+  rivalRound.playerCount = 0;
+  rivalRound.rivalCount = 0;
+  saveProgress();
+}
+
+function updateRival(dt){
+  if(!rival.mesh) return;
+
+  if(rival.mode==='pausedAtShop' || rival.mode==='pausedAtDropoff'){
+    rival.pauseTimer -= dt;
+    if(rival.pauseTimer<=0){
+      if(rival.mode==='pausedAtShop'){
+        const already = new Set(state.orders.map(o=>o.dest));
+        const dest = pickDestination(already);
+        if(dest){
+          const dp = curbsideMarkerPos(dest);
+          rival.path = computeRoadPath(rival.x, rival.z, dp.x, dp.z);
+          rival.pathIndex = 0;
+          rival.mode = rival.path ? 'toDropoff' : 'pausedAtShop';
+          if(!rival.path) rival.pauseTimer = 1.0;
+        } else {
+          rival.pauseTimer = 1.0; // nothing available yet — try again shortly
+        }
+      } else {
+        rival.path = computeRoadPath(rival.x, rival.z, SHOP_DRIVEWAY_X, 0);
+        rival.pathIndex = 0;
+        rival.mode = rival.path ? 'toShop' : 'pausedAtDropoff';
+        if(!rival.path) rival.pauseTimer = 1.0;
+      }
+    }
+    return;
+  }
+
+  if(!rival.path || rival.path.length===0){
+    rival.pauseTimer = 1.0;
+    rival.mode = (rival.mode==='toDropoff') ? 'pausedAtDropoff' : 'pausedAtShop';
+    return;
+  }
+
+  const target = rival.path[rival.pathIndex];
+  const dx = target.x-rival.x, dz = target.z-rival.z;
+  const dist = Math.hypot(dx,dz);
+  if(dist < 4){
+    rival.pathIndex++;
+    if(rival.pathIndex >= rival.path.length){
+      if(rival.mode==='toDropoff'){
+        rivalRound.rivalCount++;
+        toast("🏎️ Rico's Pizza made a delivery!", null);
+        rival.mode='pausedAtDropoff'; rival.pauseTimer=1.5;
+      } else {
+        rival.mode='pausedAtShop'; rival.pauseTimer=1.2;
+      }
+      rival.path=null;
+      return;
+    }
+  }
+
+  const bearing = Math.atan2(dx,dz);
+  let rel = bearing - rival.angle;
+  while(rel>Math.PI) rel-=Math.PI*2;
+  while(rel<-Math.PI) rel+=Math.PI*2;
+  const maxTurn = 2.6*dt;
+  rival.angle += Math.max(-maxTurn, Math.min(maxTurn, rel));
+  rival.speed = rival.cruiseSpeed;
+  rival.x += Math.sin(rival.angle)*rival.speed*dt;
+  rival.z += Math.cos(rival.angle)*rival.speed*dt;
+  const gy = terrainHeightAt(rival.x, rival.z);
+  rival.mesh.position.set(rival.x, gy, rival.z);
+  rival.mesh.rotation.y = rival.angle;
+  const wheelSpin = rival.speed*dt*1.6;
+  rival.wheels.forEach(w=>{ w.rotation.x += wheelSpin; });
+}
+
 let _pathCache=null, _pathTargetKey='', _pathFrame=0, _mmFrame=0;
 function getRoutePath(){
   _mmFrame++;
-  const tgt=state.order?state.order.dropPoint:{x:0,z:0};
+  const urgent = mostUrgentOrder();
+  const tgt = urgent ? urgent.dropPoint : {x:0,z:0};
   const tgtKey=`${Math.round(tgt.x)},${Math.round(tgt.z)}`;
   if(tgtKey!==_pathTargetKey || _mmFrame-_pathFrame>20){
     _pathTargetKey=tgtKey; _pathFrame=_mmFrame;
@@ -3179,11 +3387,12 @@ function drawMinimap(){
   mctx.font='6px sans-serif'; mctx.textAlign='center'; mctx.textBaseline='middle';
   mctx.fillText('🍕', shopMx, shopMz-2);
 
-  if(state.order){
-    const dpx=mapX(state.order.dropPoint.x), dpz=mapZ(state.order.dropPoint.z);
+  state.orders.forEach(order=>{
+    const dpx=mapX(order.dropPoint.x), dpz=mapZ(order.dropPoint.z);
+    const isUrgent = order===mostUrgentOrder();
     mctx.fillStyle='#ea4335';
     mctx.beginPath();
-    mctx.arc(dpx, dpz-2, 5, 0, Math.PI*2);
+    mctx.arc(dpx, dpz-2, isUrgent?5:4, 0, Math.PI*2);
     mctx.fill();
     mctx.fillStyle='rgba(0,0,0,0.18)';
     mctx.beginPath();
@@ -3191,8 +3400,17 @@ function drawMinimap(){
     mctx.fill();
     mctx.fillStyle='#fff'; mctx.font='6px sans-serif'; mctx.textAlign='center'; mctx.textBaseline='middle';
     mctx.fillText('🏠', dpx, dpz-2);
-    mctx.strokeStyle='rgba(234,67,53,0.45)'; mctx.lineWidth=1.5;
-    mctx.beginPath(); mctx.arc(dpx,dpz-2,7+Math.sin(Date.now()*0.004)*1.5,0,Math.PI*2); mctx.stroke();
+    if(isUrgent){
+      mctx.strokeStyle='rgba(234,67,53,0.45)'; mctx.lineWidth=1.5;
+      mctx.beginPath(); mctx.arc(dpx,dpz-2,7+Math.sin(Date.now()*0.004)*1.5,0,Math.PI*2); mctx.stroke();
+    }
+  });
+
+  if(rival.mesh){
+    const rx=mapX(rival.x), rz=mapZ(rival.z);
+    mctx.fillStyle='#8a5a9c';
+    mctx.beginPath(); mctx.arc(rx,rz,4.5,0,Math.PI*2); mctx.fill();
+    mctx.strokeStyle='#fff'; mctx.lineWidth=1; mctx.stroke();
   }
 
   const px=mapX(player.x), pz=mapZ(player.z);
@@ -3251,6 +3469,9 @@ function drawMinimap(){
 function updateHUD(){
   document.getElementById('money-text').textContent = '$'+state.money.toFixed(2);
   document.getElementById('speed-num').textContent = Math.round(Math.abs(player.speed)*3.4);
+  document.getElementById('rival-you').textContent = rivalRound.playerCount;
+  document.getElementById('rival-them').textContent = rivalRound.rivalCount;
+  document.getElementById('rival-timer-fill').style.width = Math.max(0, (rivalRound.timer/rivalRound.duration)*100)+'%';
   drawMinimap();
 }
 
@@ -3532,6 +3753,7 @@ async function boot(){
   });
 
   applyVehicleMesh(state.currentVehicle);
+  spawnRival();
 
   updateDamageUI();
   updateHUD();
