@@ -64,6 +64,14 @@
   .rival-row{font-size:12.5px;white-space:nowrap;}
   .rival-row b{color:#d4b8ff;}
 
+  .storm-panel{position:absolute;top:135px;right:14px;
+    min-width:130px;text-align:center;padding:5px 10px;border-color:rgba(255,210,61,.5);}
+  .storm-row{font-size:12px;white-space:nowrap;}
+  .storm-row b{color:#ffd23d;}
+
+  #lightning-flash{position:absolute;inset:0;background:#fff;opacity:0;
+    pointer-events:none;z-index:8;}
+
   .minimap-panel{position:absolute;bottom:18px;left:14px;padding:0;
     background:#fff;border-radius:10px;overflow:hidden;
     box-shadow:0 2px 8px rgba(0,0,0,.35),0 0 0 1px rgba(0,0,0,.12);
@@ -189,6 +197,7 @@
     </div>
     <div class="icon-btn-group">
       <div class="icon-btn" id="districts-btn" title="Buy Districts">🗺️</div>
+      <div class="icon-btn" id="storm-btn" title="Call In a Storm ($60)">⛈️</div>
       <div class="icon-btn" id="shop-btn" title="Garage">🔧</div>
     </div>
   </div>
@@ -209,9 +218,15 @@
     <div class="bar-track" style="margin:3px auto 0;"><div id="rival-timer-fill" class="bar-fill" style="width:100%;background:#8a5a9c;"></div></div>
   </div>
 
+  <div class="panel storm-panel" id="storm-panel" style="display:none;">
+    <div class="storm-row">⛈️ Storm: <b id="storm-timer">75</b>s</div>
+  </div>
+
   <div class="panel minimap-panel">
     <canvas id="minimap" width="260" height="175"></canvas>
   </div>
+
+  <div id="lightning-flash"></div>
 
   <div id="toast-wrap"></div>
 
@@ -239,6 +254,7 @@
       <div>🍕 <b>Pick up</b> orders on the driveway outside Tony's Pizza Shop — a glowing green beacon marks the spot, even through buildings. The shop itself is solid, so pull up alongside it rather than through it.</div>
       <div>📦 <b>Capacity</b> depends on your vehicle — a scooter carries one pizza at a time, a Delivery Van loads up to four in a single stop. Each pizza has its own address and its own freshness clock.</div>
       <div>🏎️ <b>Rico's Pizza</b> is out delivering too — you'll see their purple car (and a dot on the map) racing around the city. Every couple minutes your deliveries are compared: outdeliver them for a cash bonus, fall behind and they take a cut.</div>
+      <div>⛈️ <b>Call in a storm</b> ($60, next to the garage button) for a supercell that darkens the sky, gusts wind hard enough to push you off course, and drops debris piles in the streets. Survive the full storm for a cash bonus.</div>
       <div>🧭 <b>Follow the arrow</b> above your bike and the red beacon — they always point toward your shop or drop-off.</div>
       <div>⏱️ <b>Deliver</b> before the freshness meter hits zero — fresher pizza pays better.</div>
       <div>🚗 <b>Traffic</b> will brake for you if you're in its way, but don't push your luck — and watch out for buildings, too. Break down and you'll pay a repair fee to get back on the road.</div>
@@ -450,6 +466,155 @@ scene.add(sun);
 scene.add(sun.target);
 const fillLight = new THREE.AmbientLight(0xffffff, 0.22);
 scene.add(fillLight);
+
+/* =========================================================
+   STORM — darkens the sky, dims the lights, and (elsewhere) adds wind
+   and road debris. Blended via a single 0..1 factor that eases in when
+   a storm starts and back out when it ends, rather than snapping, so it
+   reads as weather rolling in rather than a light switch.
+========================================================= */
+const CLEAR_SKY = { fogColor:0xcfe3ee, fogNear:200, fogFar:1100, hemi:0.85, sun:1.7, fill:0.22, exposure:1.15 };
+const STORM_SKY = { fogColor:0x3a4048, fogNear:70,  fogFar:520,  hemi:0.26, sun:0.32, fill:0.12, exposure:0.72 };
+const _clearFogColor = new THREE.Color(CLEAR_SKY.fogColor);
+const _stormFogColor = new THREE.Color(STORM_SKY.fogColor);
+function applySkyBlend(t){
+  const lerp=(a,b)=>a+(b-a)*t;
+  scene.fog.color.copy(_clearFogColor).lerp(_stormFogColor, t);
+  scene.fog.near = lerp(CLEAR_SKY.fogNear, STORM_SKY.fogNear);
+  scene.fog.far  = lerp(CLEAR_SKY.fogFar,  STORM_SKY.fogFar);
+  hemi.intensity = lerp(CLEAR_SKY.hemi, STORM_SKY.hemi);
+  sun.intensity  = lerp(CLEAR_SKY.sun,  STORM_SKY.sun);
+  fillLight.intensity = lerp(CLEAR_SKY.fill, STORM_SKY.fill);
+  renderer.toneMappingExposure = lerp(CLEAR_SKY.exposure, STORM_SKY.exposure);
+}
+
+const stormState = {
+  active:false, timer:0, duration:75,
+  cooldownTimer:0, cooldownDuration:45,
+  skyBlend:0,           // eased 0..1, drives applySkyBlend and rain opacity
+  windPhase:0, windStrength:3.2,
+  nextFlashIn:5
+};
+
+// Rain — a single THREE.Points cloud kept centered on the player, so a
+// modest particle count (one draw call) reads as rain everywhere the
+// player goes rather than needing a city-spanning particle field.
+const RAIN_COUNT = 1100;
+let rainPoints = null;
+function buildRain(){
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(RAIN_COUNT*3);
+  for(let i=0;i<RAIN_COUNT;i++){
+    positions[i*3+0] = (Math.random()*2-1)*55;
+    positions[i*3+1] = Math.random()*40;
+    positions[i*3+2] = (Math.random()*2-1)*55;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(positions,3));
+  const mat = new THREE.PointsMaterial({ color:0xaac8e0, size:0.3, transparent:true, opacity:0, depthWrite:false });
+  rainPoints = new THREE.Points(geo, mat);
+  rainPoints.frustumCulled = false;
+  scene.add(rainPoints);
+}
+function updateRain(dt){
+  if(!rainPoints) return;
+  rainPoints.material.opacity = stormState.skyBlend*0.5;
+  if(stormState.skyBlend<=0) return;
+  const pos = rainPoints.geometry.attributes.position;
+  for(let i=0;i<RAIN_COUNT;i++){
+    let y = pos.getY(i) - 42*dt;
+    if(y<0) y = 40;
+    pos.setY(i,y);
+  }
+  pos.needsUpdate = true;
+  rainPoints.position.set(player.x, 0, player.z);
+}
+
+function triggerLightning(){
+  const el = document.getElementById('lightning-flash');
+  el.style.transition = 'none';
+  el.style.opacity = String(0.75*stormState.skyBlend);
+  const boostedSun = sun.intensity;
+  sun.intensity = boostedSun + 1.4*stormState.skyBlend;
+  requestAnimationFrame(()=>{
+    el.style.transition = 'opacity 0.4s ease-out';
+    el.style.opacity = '0';
+  });
+  setTimeout(()=>{ sun.intensity = boostedSun; }, 90);
+}
+
+// Rubble piles — "building parts in the street." Chunky, irregular,
+// clearly not a clean geometric obstacle, unlike the tidy rocks/cones.
+function buildDebrisPile(x,z){
+  const g = new THREE.Group();
+  const colors = [0x8f8a80,0x716d64,0xa39d8f,0x5f5b53];
+  for(let i=0;i<3;i++){
+    const mat = new THREE.MeshStandardMaterial({color:colors[Math.floor(Math.random()*colors.length)], roughness:0.92, flatShading:true});
+    const r = 0.35+Math.random()*0.35;
+    const chunk = new THREE.Mesh(new THREE.DodecahedronGeometry(r,0), mat);
+    chunk.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+    chunk.scale.set(1, 0.6+Math.random()*0.3, 1);
+    const ang = Math.random()*Math.PI*2, rad = Math.random()*0.5;
+    chunk.position.set(Math.cos(ang)*rad, r*0.4, Math.sin(ang)*rad);
+    g.add(chunk);
+  }
+  const rebar = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,1.1,5), new THREE.MeshStandardMaterial({color:0x6b5f52, roughness:0.6, metalness:0.5}));
+  rebar.rotation.z = 0.6; rebar.position.set(0.2,0.5,0.1);
+  g.add(rebar);
+  g.position.set(x, terrainHeightAt(x,z), z);
+  castAll(g);
+  scene.add(g);
+  return g;
+}
+
+const stormDebris = []; // {x,z,r,dmg,mesh} — collides like a heavy obstacle
+function spawnStormDebris(){
+  clearStormDebris();
+  const unlockedCount = Object.values(state.unlocked).filter(Boolean).length;
+  const count = 10 + unlockedCount*3;
+  let placed = 0, attempts = 0;
+  while(placed<count && attempts<count*6){
+    attempts++;
+    let x,z;
+    if(lineXsGlobal.length && Math.random()<0.5){
+      x = lineXsGlobal[Math.floor(Math.random()*lineXsGlobal.length)];
+      z = TOWN_MIN_Z + Math.random()*(TOWN_MAX_Z-TOWN_MIN_Z);
+      x += (Math.random()<0.5?-1:1) * (ROAD_W*0.22);
+    } else if(lineZsGlobal.length) {
+      z = lineZsGlobal[Math.floor(Math.random()*lineZsGlobal.length)];
+      x = TOWN_MIN_X + Math.random()*(TOWN_MAX_X-TOWN_MIN_X);
+      z += (Math.random()<0.5?-1:1) * (ROAD_W*0.22);
+    } else break;
+    if(Math.hypot(x,z) < 45) continue; // keep the shop/driveway clear
+    if(Math.abs(Math.abs(x)-RIVER_X)<15 || Math.abs(Math.abs(x)-RIVER_X2)<15) continue; // keep bridges clear
+    const mesh = buildDebrisPile(x,z);
+    stormDebris.push({x,z,r:1.05,dmg:7,mesh});
+    placed++;
+  }
+}
+function clearStormDebris(){
+  stormDebris.forEach(d=>{ if(d.mesh) scene.remove(d.mesh); });
+  stormDebris.length = 0;
+}
+
+function startStorm(){
+  stormState.active = true;
+  stormState.timer = stormState.duration;
+  stormState.nextFlashIn = 3+Math.random()*4;
+  spawnStormDebris();
+  document.getElementById('storm-panel').style.display = 'block';
+  toast('⛈️ A supercell is rolling in! Watch the wind and the wreckage.', 'bad');
+}
+function endStorm(survived){
+  stormState.active = false;
+  stormState.cooldownTimer = stormState.cooldownDuration;
+  clearStormDebris();
+  document.getElementById('storm-panel').style.display = 'none';
+  if(survived){
+    state.money += 25;
+    toast('☀️ The storm passed. +$25 survivor bonus!', 'good');
+    saveProgress();
+  }
+}
 
 /* ----- sky dome ----- */
 function buildSky(){
@@ -2730,6 +2895,24 @@ function update(dt){
   if(state.paused){ return; }
   const stats = baseStats();
 
+  // ----- Storm tick: sky blend easing, timer, lightning, rain -----
+  const skyTargetBlend = stormState.active ? 1 : 0;
+  stormState.skyBlend += (skyTargetBlend - stormState.skyBlend) * Math.min(1, dt*0.6);
+  applySkyBlend(stormState.skyBlend);
+  updateRain(dt);
+  if(stormState.active){
+    stormState.timer -= dt;
+    stormState.nextFlashIn -= dt;
+    if(stormState.nextFlashIn<=0){
+      triggerLightning();
+      stormState.nextFlashIn = 4+Math.random()*7;
+    }
+    if(stormState.timer<=0){ endStorm(true); }
+    stats.maxSpeed *= 0.85; // harder to hold a line in the storm
+  } else if(stormState.cooldownTimer>0){
+    stormState.cooldownTimer -= dt;
+  }
+
   if(state.keys.f)       player.speed += stats.accel * dt;
   else if(state.keys.b)  player.speed -= stats.accel * 0.85 * dt;
   else                   player.speed *= Math.max(0, 1 - 2.0*dt);
@@ -2759,6 +2942,16 @@ function update(dt){
 
   player.x += Math.sin(player.angle) * player.speed * dt;
   player.z += Math.cos(player.angle) * player.speed * dt;
+
+  // Storm wind — a slow primary gust plus a faster smaller ripple on top,
+  // so it reads as buffeting rather than a constant sideways conveyor.
+  if(stormState.active){
+    const t = clock.elapsedTime;
+    const windX = Math.sin(t*0.6)*stormState.windStrength + Math.sin(t*2.3)*stormState.windStrength*0.4;
+    const windZ = Math.cos(t*0.5)*stormState.windStrength*0.6;
+    player.x += windX*dt;
+    player.z += windZ*dt;
+  }
 
   if(state.invuln>0) state.invuln -= dt;
   let collided = false;
@@ -2860,6 +3053,19 @@ function update(dt){
         if(!collided && state.invuln<=0){ applyDamage(o.dmg); state.invuln=0.5; toast('Bumped a '+o.type+'!','bad'); applyBounce(0.55); }
         collided = true;
       }
+    }
+  }
+  for(let i=0;i<stormDebris.length;i++){
+    const o = stormDebris[i];
+    const dx = player.x-o.x, dz = player.z-o.z;
+    const rad = PLAYER_RADIUS+o.r;
+    if(dx*dx+dz*dz < rad*rad){
+      const dist = Math.hypot(dx,dz)||0.001;
+      const nx=(dx/dist), nz=(dz/dist);
+      player.x += nx*(rad-dist); player.z += nz*(rad-dist);
+      cancelIntoWall(nx,nz);
+      if(!collided && state.invuln<=0){ applyDamage(o.dmg); state.invuln=0.5; toast('Hit storm debris in the road!','bad'); applyBounce(0.55); }
+      collided = true;
     }
   }
   if(collided) player.speed *= 0.65;
@@ -3472,6 +3678,7 @@ function updateHUD(){
   document.getElementById('rival-you').textContent = rivalRound.playerCount;
   document.getElementById('rival-them').textContent = rivalRound.rivalCount;
   document.getElementById('rival-timer-fill').style.width = Math.max(0, (rivalRound.timer/rivalRound.duration)*100)+'%';
+  if(stormState.active) document.getElementById('storm-timer').textContent = Math.ceil(stormState.timer);
   drawMinimap();
 }
 
@@ -3679,6 +3886,15 @@ document.getElementById('districts-close').addEventListener('click', ()=>{
   state.paused = false;
 });
 
+const STORM_COST = 60;
+document.getElementById('storm-btn').addEventListener('click', ()=>{
+  if(stormState.active){ toast('A storm is already raging!', 'bad'); return; }
+  if(stormState.cooldownTimer>0){ toast('Storm system recharging — '+Math.ceil(stormState.cooldownTimer)+'s left', 'bad'); return; }
+  if(state.money < STORM_COST){ toast('Need $'+STORM_COST.toFixed(2)+' to call in a storm', 'bad'); return; }
+  state.money -= STORM_COST;
+  startStorm();
+});
+
 document.getElementById('start-btn').addEventListener('click', ()=>{
   document.getElementById('start-overlay').classList.add('hidden');
   state.running = true;
@@ -3754,6 +3970,7 @@ async function boot(){
 
   applyVehicleMesh(state.currentVehicle);
   spawnRival();
+  buildRain();
 
   updateDamageUI();
   updateHUD();
