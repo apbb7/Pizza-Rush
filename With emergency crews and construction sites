@@ -69,6 +69,43 @@
   .storm-row{font-size:12px;white-space:nowrap;}
   .storm-row b{color:#ffd23d;}
 
+  .zombie-panel{position:absolute;top:135px;right:14px;
+    min-width:150px;text-align:center;padding:5px 10px;border-color:rgba(139,255,120,.5);}
+  .zombie-row{font-size:12px;white-space:nowrap;}
+  .zombie-row b{color:#8bff78;}
+
+  /* Not mutually exclusive with the storm panel (a fire can keep burning
+     after the storm itself ends), so it gets its own row further down
+     rather than sharing the storm/zombie panels' slot. */
+  .fire-panel{position:absolute;top:178px;right:14px;
+    min-width:150px;text-align:center;padding:5px 10px;border-color:rgba(255,122,61,.5);}
+  .fire-row{font-size:12px;white-space:nowrap;}
+  .fire-row b{color:#ff7a3d;}
+
+  /* Also independent of the storm/fire panels — its own periodic timer. */
+  .ems-panel{position:absolute;top:221px;right:14px;
+    min-width:150px;text-align:center;padding:5px 10px;border-color:rgba(61,150,255,.5);}
+  .ems-row{font-size:12px;white-space:nowrap;}
+  .ems-row b{color:#3d96ff;}
+
+  /* A direct threat to the player (unlike the background fire/EMS panels),
+     so it gets a pulsing border rather than sitting quietly. */
+  .police-panel{position:absolute;top:264px;right:14px;
+    min-width:150px;text-align:center;padding:5px 10px;border-color:rgba(255,61,61,.8);
+    animation:wantedPulse 1s ease-in-out infinite;}
+  .police-row{font-size:12px;white-space:nowrap;}
+  .police-row b{color:#ff3d3d;}
+  @keyframes wantedPulse{0%,100%{box-shadow:0 0 0 rgba(255,61,61,0);}50%{box-shadow:0 0 14px rgba(255,61,61,.8);}}
+
+  /* An event the player can act on (ram the getaway car), so it gets a
+     mild pulse too, though less urgent than being personally wanted. */
+  .crime-panel{position:absolute;top:307px;right:14px;
+    min-width:160px;text-align:center;padding:5px 10px;border-color:rgba(255,196,61,.8);
+    animation:crimePulse 1.4s ease-in-out infinite;}
+  .crime-row{font-size:12px;white-space:nowrap;}
+  .crime-row b{color:#ffc43d;}
+  @keyframes crimePulse{0%,100%{box-shadow:0 0 0 rgba(255,196,61,0);}50%{box-shadow:0 0 10px rgba(255,196,61,.6);}}
+
   #lightning-flash{position:absolute;inset:0;background:#fff;opacity:0;
     pointer-events:none;z-index:8;}
 
@@ -198,6 +235,7 @@
     <div class="icon-btn-group">
       <div class="icon-btn" id="districts-btn" title="Buy Districts">🗺️</div>
       <div class="icon-btn" id="storm-btn" title="Call In a Storm ($60)">⛈️</div>
+      <div class="icon-btn" id="zombie-btn" title="Unleash the Undead ($80)">🧟</div>
       <div class="icon-btn" id="shop-btn" title="Garage">🔧</div>
     </div>
   </div>
@@ -220,6 +258,26 @@
 
   <div class="panel storm-panel" id="storm-panel" style="display:none;">
     <div class="storm-row">⛈️ Storm: <b id="storm-timer">75</b>s</div>
+  </div>
+
+  <div class="panel zombie-panel" id="zombie-panel" style="display:none;">
+    <div class="zombie-row">🧟 Apocalypse: <b id="zombie-timer">120</b>s</div>
+  </div>
+
+  <div class="panel fire-panel" id="fire-panel" style="display:none;">
+    <div class="fire-row">🔥 Fires burning: <b id="fire-count">0</b></div>
+  </div>
+
+  <div class="panel ems-panel" id="ems-panel" style="display:none;">
+    <div class="ems-row">🚨 Emergencies: <b id="ems-count">0</b></div>
+  </div>
+
+  <div class="panel police-panel" id="police-panel" style="display:none;">
+    <div class="police-row">🚨 WANTED! <b id="police-timer">45</b>s</div>
+  </div>
+
+  <div class="panel crime-panel" id="crime-panel" style="display:none;">
+    <div class="crime-row">🏦 Robbery in progress!</div>
   </div>
 
   <div class="panel minimap-panel">
@@ -255,6 +313,12 @@
       <div>📦 <b>Capacity</b> depends on your vehicle — a scooter carries one pizza at a time, a Delivery Van loads up to four in a single stop. Each pizza has its own address and its own freshness clock.</div>
       <div>🏎️ <b>Rico's Pizza</b> is out delivering too — you'll see their purple car (and a dot on the map) racing around the city. Every couple minutes your deliveries are compared: outdeliver them for a cash bonus, fall behind and they take a cut.</div>
       <div>⛈️ <b>Call in a storm</b> ($60, next to the garage button) for a supercell that darkens the sky, gusts wind hard enough to push you off course, and drops debris piles in the streets. Survive the full storm for a cash bonus.</div>
+      <div>🧟 <b>Unleash the undead</b> ($80) and the sidewalks empty out — fast zombies converge on you from every direction, and being caught costs you damage. Survive the full 2 minutes for a bigger bonus.</div>
+      <div>🚒 <b>Lightning from a storm</b> can strike and set a building ablaze — Firehouse 7, one block from the shop, dispatches trucks automatically to fight it. Steer clear of the flames yourself, they'll singe your vehicle too.</div>
+      <div>🚑 <b>Medical emergencies</b> pop up on their own around the city — County General dispatches ambulances automatically to treat and transport. No action needed from you, just stay out of their way.</div>
+      <div>🚓 <b>Patrol cars</b> roam the streets from Precinct 12 — speed for too long or plow into traffic/pedestrians near one and you'll go WANTED. Outrun or evade the chase before the timer runs out, or get busted and pay a fine.</div>
+      <div>🏦 <b>Bank robberies</b> happen on their own — a getaway car peels out and a patrol car gives chase. Ram the getaway car yourself for a bigger cash reward than leaving it to the police.</div>
+      <div>🏗️ <b>Construction sites</b> dot the city — cranes, mixers, excavators and crews work for real, and the building actually grows and finishes over time.</div>
       <div>🧭 <b>Follow the arrow</b> above your bike and the red beacon — they always point toward your shop or drop-off.</div>
       <div>⏱️ <b>Deliver</b> before the freshness meter hits zero — fresher pizza pays better.</div>
       <div>🚗 <b>Traffic</b> will brake for you if you're in its way, but don't push your luck — and watch out for buildings, too. Break down and you'll pay a repair fee to get back on the road.</div>
@@ -325,6 +389,18 @@ const BLOCK_HALF = 30;
 const BLOCK = ROAD_W + BLOCK_HALF*2;
 const IX_RANGE = [-10,10];
 const IZ_RANGE = [-6,6];
+// The firehouse reserves its own downtown block, one over from the shop —
+// same reservation pattern as (0,0), just a different fixed cell.
+const FIREHOUSE_IX = 1, FIREHOUSE_IZ = 1;
+// The hospital gets its own reserved downtown block too, on the opposite
+// side of the shop from the firehouse.
+const HOSPITAL_IX = -1, HOSPITAL_IZ = 1;
+// The police station rounds out the four reserved downtown blocks around
+// the shop — one in each diagonal direction.
+const POLICE_IX = -1, POLICE_IZ = -1;
+// Fifth and final reserved downtown block, rounding out all four
+// diagonals around the shop.
+const BANK_IX = 1, BANK_IZ = -1;
 const TOWN_MIN_X = (IX_RANGE[0]-0.5)*BLOCK;
 const TOWN_MAX_X = (IX_RANGE[1]+0.5)*BLOCK;
 const TOWN_MIN_Z = (IZ_RANGE[0]-0.5)*BLOCK;
@@ -475,17 +551,18 @@ scene.add(fillLight);
 ========================================================= */
 const CLEAR_SKY = { fogColor:0xcfe3ee, fogNear:200, fogFar:1100, hemi:0.85, sun:1.7, fill:0.22, exposure:1.15 };
 const STORM_SKY = { fogColor:0x3a4048, fogNear:70,  fogFar:520,  hemi:0.26, sun:0.32, fill:0.12, exposure:0.72 };
-const _clearFogColor = new THREE.Color(CLEAR_SKY.fogColor);
-const _stormFogColor = new THREE.Color(STORM_SKY.fogColor);
-function applySkyBlend(t){
+const APOCALYPSE_SKY = { fogColor:0x3d4a34, fogNear:60, fogFar:420, hemi:0.22, sun:0.38, fill:0.10, exposure:0.68 };
+[CLEAR_SKY, STORM_SKY, APOCALYPSE_SKY].forEach(p=>{ p._color = new THREE.Color(p.fogColor); });
+function applySkyBlend(t, target){
+  target = target || STORM_SKY;
   const lerp=(a,b)=>a+(b-a)*t;
-  scene.fog.color.copy(_clearFogColor).lerp(_stormFogColor, t);
-  scene.fog.near = lerp(CLEAR_SKY.fogNear, STORM_SKY.fogNear);
-  scene.fog.far  = lerp(CLEAR_SKY.fogFar,  STORM_SKY.fogFar);
-  hemi.intensity = lerp(CLEAR_SKY.hemi, STORM_SKY.hemi);
-  sun.intensity  = lerp(CLEAR_SKY.sun,  STORM_SKY.sun);
-  fillLight.intensity = lerp(CLEAR_SKY.fill, STORM_SKY.fill);
-  renderer.toneMappingExposure = lerp(CLEAR_SKY.exposure, STORM_SKY.exposure);
+  scene.fog.color.copy(CLEAR_SKY._color).lerp(target._color, t);
+  scene.fog.near = lerp(CLEAR_SKY.fogNear, target.fogNear);
+  scene.fog.far  = lerp(CLEAR_SKY.fogFar,  target.fogFar);
+  hemi.intensity = lerp(CLEAR_SKY.hemi, target.hemi);
+  sun.intensity  = lerp(CLEAR_SKY.sun,  target.sun);
+  fillLight.intensity = lerp(CLEAR_SKY.fill, target.fill);
+  renderer.toneMappingExposure = lerp(CLEAR_SKY.exposure, target.exposure);
 }
 
 const stormState = {
@@ -540,6 +617,7 @@ function triggerLightning(){
     el.style.opacity = '0';
   });
   setTimeout(()=>{ sun.intensity = boostedSun; }, 90);
+  tryIgniteFire();
 }
 
 // Rubble piles — "building parts in the street." Chunky, irregular,
@@ -613,6 +691,1192 @@ function endStorm(survived){
     state.money += 25;
     toast('☀️ The storm passed. +$25 survivor bonus!', 'good');
     saveProgress();
+  }
+}
+
+/* =========================================================
+   ZOMBIE APOCALYPSE — pedestrians vanish, the sky sickens, and fast
+   zombies converge on the player from every direction. No pathfinding
+   (would be expensive with a couple dozen of them) — they just beeline
+   straight for the player's current position across open ground, which
+   reads fine for a shambling-but-fast horde and keeps this cheap.
+========================================================= */
+const zombies = [];
+const zombieState = {
+  active:false, timer:0, duration:120,
+  cooldownTimer:0, cooldownDuration:60,
+  skyBlend:0,
+  chaseSpeed:13, count:20,
+  toastCooldown:0
+};
+
+function buildZombieMesh(){
+  const g = new THREE.Group();
+  const skinTones = [0x6b7a5e,0x5a6b4f,0x7a8a6e,0x4f5c46];
+  const tatterColors = [0x3a3f30,0x4a4a3a,0x2f3528];
+  const skin = skinTones[Math.floor(Math.random()*skinTones.length)];
+  const tatter = tatterColors[Math.floor(Math.random()*tatterColors.length)];
+  const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.12,0.8,6), new THREE.MeshStandardMaterial({color:tatter, roughness:1}));
+  legs.position.y=0.4; g.add(legs);
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.19,0.16,0.55,8), new THREE.MeshStandardMaterial({color:tatter, roughness:1}));
+  torso.position.y=1.02; torso.rotation.x=0.25; g.add(torso); // hunched forward
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.16,10,10), new THREE.MeshStandardMaterial({color:skin, roughness:1}));
+  head.position.set(0,1.42,0.08); g.add(head);
+  const eyeMat = new THREE.MeshStandardMaterial({color:0xff3b30, emissive:0xff3b30, emissiveIntensity:1.2});
+  [-0.06,0.06].forEach(ex=>{
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.025,6,6), eyeMat);
+    eye.position.set(ex,1.44,0.21); g.add(eye);
+  });
+  const armMat = new THREE.MeshStandardMaterial({color:skin, roughness:1});
+  [-0.24,0.24].forEach(sx=>{
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.55,6), armMat);
+    arm.position.set(sx,1.05,0.15);
+    arm.rotation.x = -0.9; // arms reaching forward
+    g.add(arm);
+  });
+  castAll(g);
+  return g;
+}
+
+function spawnZombies(){
+  clearZombies();
+  for(let i=0;i<zombieState.count;i++){
+    const ang = Math.random()*Math.PI*2;
+    const rad = 40+Math.random()*160; // scattered around the player, not right on top of them
+    const x = player.x + Math.cos(ang)*rad;
+    const z = player.z + Math.sin(ang)*rad;
+    const mesh = buildZombieMesh();
+    mesh.position.set(x, terrainHeightAt(x,z), z);
+    scene.add(mesh);
+    zombies.push({x,z,angle:0,mesh,biteTimer:0});
+  }
+}
+function clearZombies(){
+  zombies.forEach(z=>{ if(z.mesh) scene.remove(z.mesh); });
+  zombies.length = 0;
+}
+
+function updateZombies(dt){
+  if(!zombieState.active) return;
+  zombieState.toastCooldown = Math.max(0, zombieState.toastCooldown-dt);
+  const BITE_RANGE = 2.0;
+  for(let i=0;i<zombies.length;i++){
+    const z = zombies[i];
+    const dx = player.x-z.x, dz = player.z-z.z;
+    const dist = Math.hypot(dx,dz)||0.001;
+    const dirX=dx/dist, dirZ=dz/dist;
+    z.x += dirX*zombieState.chaseSpeed*dt;
+    z.z += dirZ*zombieState.chaseSpeed*dt;
+    z.angle = Math.atan2(dirX,dirZ);
+    const gy = terrainHeightAt(z.x,z.z);
+    z.mesh.position.set(z.x, gy, z.z);
+    z.mesh.rotation.y = z.angle;
+    z.biteTimer -= dt;
+    if(dist < BITE_RANGE && z.biteTimer<=0){
+      applyDamage(6);
+      z.biteTimer = 0.8;
+      if(zombieState.toastCooldown<=0){
+        toast('🧟 Zombies are clawing at your vehicle!', 'bad');
+        zombieState.toastCooldown = 1.5;
+      }
+    }
+  }
+}
+
+function startApocalypse(){
+  zombieState.active = true;
+  zombieState.timer = zombieState.duration;
+  zombieState.toastCooldown = 0;
+  pedestrians.forEach(p=>{ p.mesh.visible=false; });
+  spawnZombies();
+  document.getElementById('zombie-panel').style.display = 'block';
+  toast('🧟 THE DEAD ARE RISING! Survive 2 minutes for a bonus!', 'bad');
+}
+function endApocalypse(survived){
+  zombieState.active = false;
+  zombieState.cooldownTimer = zombieState.cooldownDuration;
+  clearZombies();
+  pedestrians.forEach(p=>{ p.mesh.visible=true; });
+  document.getElementById('zombie-panel').style.display = 'none';
+  if(survived){
+    state.money += 40;
+    toast('🌅 Dawn breaks. You survived the apocalypse! +$40', 'good');
+    saveProgress();
+  }
+}
+
+/* =========================================================
+   FIRE DEPARTMENT — building fires, triggered by storm lightning
+   (see triggerLightning() above). A small firehouse garages a couple of
+   trucks; when a fire starts, an idle truck paths to the nearest curb
+   next to the burning building (reusing the same aStar/computeRoadPath
+   machinery as the rival driver) and extinguishes it over a few seconds,
+   then heads home. Independent of the storm's own active/inactive state
+   once lit — a fire keeps burning, and gets fought, even after the storm
+   itself has passed.
+========================================================= */
+const FIRETRUCK_COUNT = 2;
+const MAX_ACTIVE_FIRES = 2;
+const FIRE_IGNITE_CHANCE = 0.35; // per lightning flash, while a slot is free
+let firehouseInfo = null;
+const fireTrucks = [];   // {x,z,angle,speed,mesh,wheels,beacon,path,pathIndex,mode,fire}
+const activeFires = [];  // {x,z,building,mesh,intensity,truck,t,dmgCooldown}
+
+function buildFirehouseBuilding(x,z){
+  const hx=13, hz=10, h=11;
+  addBuildingMesh(x,z,hx,hz,h,0xb5342a,'flat','glass');
+  addCurb(x,z);
+  // Three dark bay doors facing the street side.
+  const doorMat = new THREE.MeshStandardMaterial({ color:0x242424, roughness:0.55, metalness:0.2 });
+  for(let i=-1;i<=1;i++){
+    const door = new THREE.Mesh(new THREE.BoxGeometry(3.2,5.4,0.3), doorMat);
+    door.position.set(x+i*4.3, 2.8, z+hz+0.06);
+    scene.add(door);
+  }
+  // A small lookout tower on one corner so the building reads as a
+  // firehouse from a distance, not just another downtown block.
+  const towerMat = new THREE.MeshStandardMaterial({ color:0x8f2a22, roughness:0.55 });
+  const tower = new THREE.Mesh(new THREE.BoxGeometry(3.4,6.4,3.4), towerMat);
+  tower.position.set(x-hx+2.2, h+3.2, z-hz+2.2);
+  scene.add(tower);
+  const roofMat = new THREE.MeshStandardMaterial({ color:0x5c1f19, roughness:0.6 });
+  const towerRoof = new THREE.Mesh(new THREE.BoxGeometry(3.8,0.4,3.8), roofMat);
+  towerRoof.position.set(x-hx+2.2, h+6.6, z-hz+2.2);
+  scene.add(towerRoof);
+  const dispatch = curbsideMarkerPos({x,z,hx,hz,ix:FIREHOUSE_IX,iz:FIREHOUSE_IZ});
+  return { x,z,hx,hz,height:h, name:'Firehouse 7', isFirehouse:true, dispatch };
+}
+
+function buildFireTruckMesh(){
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({color:0xcc1f1f, roughness:0.45, metalness:0.25});
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.3,1.55,5.6), bodyMat);
+  body.position.set(0,1.05,-0.35); g.add(body);
+  const cabMat = new THREE.MeshStandardMaterial({color:0xe6e6e6, roughness:0.35});
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(2.2,1.35,1.5), cabMat);
+  cab.position.set(0,1.35,2.55); g.add(cab);
+  const windshield = new THREE.Mesh(new THREE.BoxGeometry(2.0,0.6,0.08), new THREE.MeshStandardMaterial({color:0x1d2733,roughness:0.3}));
+  windshield.position.set(0,1.85,3.43); windshield.rotation.x=-0.15; g.add(windshield);
+  // Stripe embedded through the body's own centerline (same technique as
+  // the van/muscle-car) so it can never land exactly coplanar with it.
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.32,0.4,5.62), new THREE.MeshStandardMaterial({color:0xf4c24d}));
+  stripe.position.set(0,0.55,-0.35); g.add(stripe);
+  const ladderMat = new THREE.MeshStandardMaterial({color:0xcccccc, metalness:0.5, roughness:0.4});
+  const ladder = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.28,4.6), ladderMat);
+  ladder.position.set(0,2.0,-0.6); g.add(ladder);
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.14,8,8), new THREE.MeshStandardMaterial({color:0xff2a2a, emissive:0xff2a2a, emissiveIntensity:1.0}));
+  beacon.position.set(0,2.2,2.3); g.add(beacon);
+  const wheelMat = new THREE.MeshStandardMaterial({color:0x111111});
+  const wheels=[];
+  [[1.12,-1.9],[-1.12,-1.9],[1.12,0.3],[-1.12,0.3],[1.12,2.2],[-1.12,2.2]].forEach(([wx,wz])=>{
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.42,0.36,10), wheelMat);
+    w.rotation.z=Math.PI/2; w.position.set(wx,0.42,wz); g.add(w); wheels.push(w);
+  });
+  const headlights = new THREE.Mesh(new THREE.BoxGeometry(1.9,0.2,0.06), new THREE.MeshStandardMaterial({color:0xfff7c0, emissive:0xfff7c0, emissiveIntensity:0.7}));
+  headlights.position.set(0,0.95,3.34); g.add(headlights);
+  castAll(g);
+  return { mesh:g, wheels, beacon };
+}
+
+function buildFireMesh(){
+  const g = new THREE.Group();
+  const cnv = document.createElement('canvas'); cnv.width=64; cnv.height=64;
+  const ctx = cnv.getContext('2d');
+  ctx.font = '46px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('🔥', 32, 36);
+  const tex = new THREE.CanvasTexture(cnv);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, depthTest:false, transparent:true}));
+  sprite.scale.set(3.2,3.2,1);
+  sprite.position.y = 2.0;
+  sprite.renderOrder = 905;
+  g.add(sprite);
+  g.userData.sprite = sprite;
+  return g;
+}
+
+function spawnFireTrucks(){
+  for(let i=0;i<FIRETRUCK_COUNT;i++){
+    const built = buildFireTruckMesh();
+    built.mesh.visible = false;
+    const x = firehouseInfo.dispatch.x, z = firehouseInfo.dispatch.z;
+    built.mesh.position.set(x, terrainHeightAt(x,z), z);
+    scene.add(built.mesh);
+    fireTrucks.push({
+      x, z, angle:-Math.PI/2, speed:0,
+      mesh: built.mesh, wheels: built.wheels, beacon: built.beacon,
+      path:null, pathIndex:0, mode:'garaged', fire:null
+    });
+  }
+}
+
+function dispatchTruckTo(fire, truck){
+  truck = truck || fireTrucks.find(t=>t.mode==='garaged');
+  if(!truck) return; // every truck is busy — the fire waits until one frees up
+  const dp = curbsideMarkerPos(fire.building);
+  const path = computeRoadPath(truck.x, truck.z, dp.x, dp.z);
+  if(!path){
+    truck.mode='garaged'; truck.mesh.visible=false;
+    return;
+  }
+  truck.path = path;
+  truck.pathIndex = 0;
+  truck.fire = fire;
+  fire.truck = truck;
+  truck.mode = 'toFire';
+  truck.mesh.visible = true;
+  toast('🚒 A fire truck is responding!', null);
+}
+
+function returnTruckHome(t){
+  const path = computeRoadPath(t.x, t.z, firehouseInfo.dispatch.x, firehouseInfo.dispatch.z);
+  if(!path){ t.mode='garaged'; t.mesh.visible=false; return; }
+  t.path = path;
+  t.pathIndex = 0;
+  t.mode = 'returning';
+}
+
+function tryIgniteFire(){
+  if(activeFires.length >= MAX_ACTIVE_FIRES) return;
+  if(Math.random() > FIRE_IGNITE_CHANCE) return;
+  const candidates = buildings.filter(b=>!b.isShop && !b.isFirehouse && !b.isHospital && !b.isPoliceStation && !b.isBank && !activeFires.some(f=>f.building===b));
+  if(!candidates.length) return;
+  startFireAt(candidates[Math.floor(Math.random()*candidates.length)]);
+}
+
+function startFireAt(b){
+  const mesh = buildFireMesh();
+  const fx = b.x + (Math.random()<0.5?-1:1)*b.hx*0.55;
+  const fz = b.z + (Math.random()<0.5?-1:1)*b.hz*0.55;
+  mesh.position.set(fx, terrainHeightAt(fx,fz), fz);
+  scene.add(mesh);
+  const fire = { x:fx, z:fz, building:b, mesh, intensity:1, truck:null, t:Math.random()*10, dmgCooldown:0 };
+  activeFires.push(fire);
+  toast("🔥 Lightning struck — a building's on fire!", 'bad');
+  dispatchTruckTo(fire);
+}
+
+function updateFires(dt){
+  for(let i=activeFires.length-1;i>=0;i--){
+    const f = activeFires[i];
+    f.t += dt;
+    const flick = 1 + Math.sin(f.t*9)*0.08 + Math.sin(f.t*17)*0.04;
+    const scale = 3.2*flick*Math.max(0.15, f.intensity);
+    f.mesh.userData.sprite.scale.set(scale,scale,1);
+    f.mesh.position.set(f.x, terrainHeightAt(f.x,f.z)+0.2+Math.sin(f.t*9)*0.05, f.z);
+    f.dmgCooldown -= dt;
+    const dist = Math.hypot(player.x-f.x, player.z-f.z);
+    if(dist < 3 && f.dmgCooldown<=0){
+      applyDamage(3);
+      f.dmgCooldown = 1.2;
+    }
+    if(f.intensity<=0){
+      scene.remove(f.mesh);
+      activeFires.splice(i,1);
+    }
+  }
+}
+
+function updateFireTrucks(dt){
+  for(let i=0;i<fireTrucks.length;i++){
+    const t = fireTrucks[i];
+    if(t.mode==='garaged') continue;
+
+    if(t.mode==='extinguishing'){
+      if(!t.fire || activeFires.indexOf(t.fire)===-1){
+        t.fire = null;
+        returnTruckHome(t);
+        continue;
+      }
+      t.fire.intensity -= dt/9;
+      if(t.fire.intensity<=0){
+        toast('🚒 The fire department put out the blaze!', 'good');
+        t.fire = null;
+        returnTruckHome(t);
+      }
+      continue;
+    }
+
+    if(!t.path || t.path.length===0){
+      if(t.mode==='toFire'){
+        t.mode='extinguishing';
+      } else if(t.mode==='returning'){
+        t.mode='garaged'; t.mesh.visible=false;
+        const waiting = activeFires.find(f=>!f.truck);
+        if(waiting) dispatchTruckTo(waiting, t);
+      }
+      continue;
+    }
+
+    const target = t.path[t.pathIndex];
+    const dx = target.x-t.x, dz = target.z-t.z;
+    const dist = Math.hypot(dx,dz);
+    if(dist < 4){
+      t.pathIndex++;
+      if(t.pathIndex >= t.path.length){
+        t.path = null;
+        if(t.mode==='toFire'){
+          t.mode='extinguishing';
+        } else if(t.mode==='returning'){
+          t.mode='garaged'; t.mesh.visible=false;
+          const waiting = activeFires.find(f=>!f.truck);
+          if(waiting) dispatchTruckTo(waiting, t);
+        }
+        continue;
+      }
+    }
+
+    const bearing = Math.atan2(dx,dz);
+    let rel = bearing - t.angle;
+    while(rel>Math.PI) rel-=Math.PI*2;
+    while(rel<-Math.PI) rel+=Math.PI*2;
+    const maxTurn = 2.2*dt;
+    t.angle += Math.max(-maxTurn, Math.min(maxTurn, rel));
+    t.speed = 11;
+    t.x += Math.sin(t.angle)*t.speed*dt;
+    t.z += Math.cos(t.angle)*t.speed*dt;
+    const gy = terrainHeightAt(t.x,t.z);
+    t.mesh.position.set(t.x, gy, t.z);
+    t.mesh.rotation.y = t.angle;
+    const wheelSpin = t.speed*dt*1.5;
+    t.wheels.forEach(w=>{ w.rotation.x += wheelSpin; });
+    t.beacon.material.emissiveIntensity = 0.6 + Math.sin(performance.now()*0.02+i)*0.5;
+  }
+}
+
+/* =========================================================
+   AMBULANCE / EMS — medical emergency calls, independent of the storm
+   system (these fire on their own periodic timer, not off lightning).
+   County General doubles as both hospital and ambulance station, so the
+   state machine is one leg shorter than the fire trucks': toScene ->
+   treating -> toHospital -> garaged (arriving at the hospital IS arriving
+   home, no separate "returning" leg needed).
+========================================================= */
+const AMBULANCE_COUNT = 2;
+const MAX_ACTIVE_EMERGENCIES = 2;
+let hospitalInfo = null;
+const ambulances = [];        // {x,z,angle,speed,mesh,wheels,beaconR,beaconB,path,pathIndex,mode,emergency}
+const activeEmergencies = []; // {x,z,building,mesh,severity,ambulance,t}
+const emergencyState = { nextCheckIn: 20+Math.random()*20 };
+
+function buildHospitalBuilding(x,z){
+  const hx=14, hz=11, h=13;
+  addBuildingMesh(x,z,hx,hz,h,0xf2f2ea,'flat','glass');
+  addCurb(x,z);
+  // Red cross on the facade — the two bars offset slightly in depth so
+  // their overlap at the center isn't two perfectly coplanar faces.
+  const crossMat = new THREE.MeshStandardMaterial({color:0xd81e1e, emissive:0xd81e1e, emissiveIntensity:0.25});
+  const vBar = new THREE.Mesh(new THREE.BoxGeometry(1.1,3.4,0.25), crossMat);
+  vBar.position.set(x, h*0.55, z+hz+0.05);
+  scene.add(vBar);
+  const hBar = new THREE.Mesh(new THREE.BoxGeometry(3.4,1.1,0.25), crossMat);
+  hBar.position.set(x, h*0.55, z+hz+0.14);
+  scene.add(hBar);
+  // Covered ambulance bay awning out front.
+  const awn = new THREE.Mesh(new THREE.BoxGeometry(hx*1.1, 0.5, 3.2), new THREE.MeshStandardMaterial({color:0xd81e1e}));
+  awn.position.set(x, 4.4, z+hz+1.2);
+  scene.add(awn);
+  const dispatch = curbsideMarkerPos({x,z,hx,hz,ix:HOSPITAL_IX,iz:HOSPITAL_IZ});
+  return { x,z,hx,hz,height:h, name:'County General', isHospital:true, dispatch };
+}
+
+function buildAmbulanceMesh(){
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({color:0xf5f5f0, roughness:0.4, metalness:0.1});
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.1,1.9,4.9), bodyMat);
+  body.position.set(0,1.15,-0.2); g.add(body);
+  const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.9,0.55,0.08), new THREE.MeshStandardMaterial({color:0x223344,roughness:0.3}));
+  windshield.position.set(0,1.75,2.38); windshield.rotation.x=-0.12; g.add(windshield);
+  // Stripe embedded through the body's own centerline (same technique as
+  // every other vehicle's racing stripe) so it can't land exactly
+  // coplanar with the body's side faces.
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.12,0.45,4.92), new THREE.MeshStandardMaterial({color:0xd81e1e}));
+  stripe.position.set(0,0.65,-0.2); g.add(stripe);
+  // Roof-mounted cross, held clear of the roof surface and with its own
+  // two bars offset in height so neither pair of faces lands coincident.
+  const crossMat = new THREE.MeshStandardMaterial({color:0xd81e1e, emissive:0xd81e1e, emissiveIntensity:0.3});
+  const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.08,1.3), crossMat);
+  crossV.position.set(0,2.20,-0.2); g.add(crossV);
+  const crossH = new THREE.Mesh(new THREE.BoxGeometry(1.3,0.08,0.5), crossMat);
+  crossH.position.set(0,2.29,-0.2); g.add(crossH);
+  const beaconR = new THREE.Mesh(new THREE.SphereGeometry(0.13,8,8), new THREE.MeshStandardMaterial({color:0xff2a2a, emissive:0xff2a2a, emissiveIntensity:1.0}));
+  beaconR.position.set(-0.35,2.0,2.0); g.add(beaconR);
+  const beaconB = new THREE.Mesh(new THREE.SphereGeometry(0.13,8,8), new THREE.MeshStandardMaterial({color:0x2a6bff, emissive:0x2a6bff, emissiveIntensity:1.0}));
+  beaconB.position.set(0.35,2.0,2.0); g.add(beaconB);
+  const wheelMat = new THREE.MeshStandardMaterial({color:0x111111});
+  const wheels=[];
+  [[1.05,-1.7],[-1.05,-1.7],[1.05,1.6],[-1.05,1.6]].forEach(([wx,wz])=>{
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.38,0.38,0.32,10), wheelMat);
+    w.rotation.z=Math.PI/2; w.position.set(wx,0.38,wz); g.add(w); wheels.push(w);
+  });
+  const headlights = new THREE.Mesh(new THREE.BoxGeometry(1.8,0.2,0.06), new THREE.MeshStandardMaterial({color:0xfff7c0, emissive:0xfff7c0, emissiveIntensity:0.7}));
+  headlights.position.set(0,0.9,2.3); g.add(headlights);
+  castAll(g);
+  return { mesh:g, wheels, beaconR, beaconB };
+}
+
+function buildEmergencyMesh(){
+  const g = new THREE.Group();
+  const cnv = document.createElement('canvas'); cnv.width=64; cnv.height=64;
+  const ctx = cnv.getContext('2d');
+  ctx.font = '46px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('🚨', 32, 36);
+  const tex = new THREE.CanvasTexture(cnv);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, depthTest:false, transparent:true}));
+  sprite.scale.set(2.6,2.6,1);
+  sprite.position.y = 1.8;
+  sprite.renderOrder = 904;
+  g.add(sprite);
+  g.userData.sprite = sprite;
+  return g;
+}
+
+function spawnAmbulances(){
+  for(let i=0;i<AMBULANCE_COUNT;i++){
+    const built = buildAmbulanceMesh();
+    built.mesh.visible = false;
+    const x = hospitalInfo.dispatch.x, z = hospitalInfo.dispatch.z;
+    built.mesh.position.set(x, terrainHeightAt(x,z), z);
+    scene.add(built.mesh);
+    ambulances.push({
+      x, z, angle:-Math.PI/2, speed:0,
+      mesh: built.mesh, wheels: built.wheels, beaconR: built.beaconR, beaconB: built.beaconB,
+      path:null, pathIndex:0, mode:'garaged', emergency:null
+    });
+  }
+}
+
+function dispatchAmbulanceTo(emergency, amb){
+  amb = amb || ambulances.find(a=>a.mode==='garaged');
+  if(!amb) return; // every ambulance is busy — the call waits until one frees up
+  const dp = curbsideMarkerPos(emergency.building);
+  const path = computeRoadPath(amb.x, amb.z, dp.x, dp.z);
+  if(!path){
+    amb.mode='garaged'; amb.mesh.visible=false;
+    return;
+  }
+  amb.path = path;
+  amb.pathIndex = 0;
+  amb.emergency = emergency;
+  emergency.ambulance = amb;
+  amb.mode = 'toScene';
+  amb.mesh.visible = true;
+  toast('🚑 An ambulance is responding!', null);
+}
+
+function sendAmbulanceToHospital(amb){
+  const path = computeRoadPath(amb.x, amb.z, hospitalInfo.dispatch.x, hospitalInfo.dispatch.z);
+  if(!path){ amb.mode='garaged'; amb.mesh.visible=false; return; }
+  amb.path = path;
+  amb.pathIndex = 0;
+  amb.mode = 'toHospital';
+}
+
+function tryTriggerEmergency(){
+  if(activeEmergencies.length >= MAX_ACTIVE_EMERGENCIES) return;
+  const candidates = buildings.filter(b=>!b.isShop && !b.isFirehouse && !b.isHospital && !b.isPoliceStation && !b.isBank && !activeEmergencies.some(e=>e.building===b));
+  if(!candidates.length) return;
+  startEmergencyAt(candidates[Math.floor(Math.random()*candidates.length)]);
+}
+
+function startEmergencyAt(b){
+  const mesh = buildEmergencyMesh();
+  const ex = b.x + (Math.random()<0.5?-1:1)*b.hx*0.55;
+  const ez = b.z + (Math.random()<0.5?-1:1)*b.hz*0.55;
+  mesh.position.set(ex, terrainHeightAt(ex,ez), ez);
+  scene.add(mesh);
+  const emergency = { x:ex, z:ez, building:b, mesh, severity:1, ambulance:null, t:0 };
+  activeEmergencies.push(emergency);
+  toast('🚨 Medical emergency reported!', 'bad');
+  dispatchAmbulanceTo(emergency);
+}
+
+function updateEmergencies(dt){
+  for(let i=0;i<activeEmergencies.length;i++){
+    const e = activeEmergencies[i];
+    e.t += dt;
+    const flick = 1 + Math.sin(e.t*7)*0.1;
+    const sc = 2.6*flick;
+    e.mesh.userData.sprite.scale.set(sc,sc,1);
+    e.mesh.position.set(e.x, terrainHeightAt(e.x,e.z)+0.1, e.z);
+  }
+}
+
+function updateAmbulances(dt){
+  for(let i=0;i<ambulances.length;i++){
+    const a = ambulances[i];
+    if(a.mode==='garaged') continue;
+
+    if(a.mode==='treating'){
+      if(!a.emergency){ a.mode='garaged'; a.mesh.visible=false; continue; }
+      a.emergency.severity -= dt/6;
+      if(a.emergency.severity<=0){
+        scene.remove(a.emergency.mesh);
+        const idx = activeEmergencies.indexOf(a.emergency);
+        if(idx!==-1) activeEmergencies.splice(idx,1);
+        toast('🚑 Patient loaded — heading to County General', null);
+        a.emergency = null;
+        sendAmbulanceToHospital(a);
+      }
+      continue;
+    }
+
+    if(!a.path || a.path.length===0){
+      if(a.mode==='toScene'){
+        a.mode='treating';
+      } else if(a.mode==='toHospital'){
+        a.mode='garaged'; a.mesh.visible=false;
+        toast('✅ Patient delivered safely.', 'good');
+        const waiting = activeEmergencies.find(e=>!e.ambulance);
+        if(waiting) dispatchAmbulanceTo(waiting, a);
+      }
+      continue;
+    }
+
+    const target = a.path[a.pathIndex];
+    const dx = target.x-a.x, dz = target.z-a.z;
+    const dist = Math.hypot(dx,dz);
+    if(dist < 4){
+      a.pathIndex++;
+      if(a.pathIndex >= a.path.length){
+        a.path = null;
+        if(a.mode==='toScene'){
+          a.mode='treating';
+        } else if(a.mode==='toHospital'){
+          a.mode='garaged'; a.mesh.visible=false;
+          toast('✅ Patient delivered safely.', 'good');
+          const waiting = activeEmergencies.find(e=>!e.ambulance);
+          if(waiting) dispatchAmbulanceTo(waiting, a);
+        }
+        continue;
+      }
+    }
+
+    const bearing = Math.atan2(dx,dz);
+    let rel = bearing - a.angle;
+    while(rel>Math.PI) rel-=Math.PI*2;
+    while(rel<-Math.PI) rel+=Math.PI*2;
+    const maxTurn = 2.4*dt;
+    a.angle += Math.max(-maxTurn, Math.min(maxTurn, rel));
+    a.speed = 12.5;
+    a.x += Math.sin(a.angle)*a.speed*dt;
+    a.z += Math.cos(a.angle)*a.speed*dt;
+    const gy = terrainHeightAt(a.x,a.z);
+    a.mesh.position.set(a.x, gy, a.z);
+    a.mesh.rotation.y = a.angle;
+    const wheelSpin = a.speed*dt*1.6;
+    a.wheels.forEach(w=>{ w.rotation.x += wheelSpin; });
+    const blink = Math.sin(performance.now()*0.012+i)>0;
+    a.beaconR.material.emissiveIntensity = blink?1.2:0.2;
+    a.beaconB.material.emissiveIntensity = blink?0.2:1.2;
+  }
+}
+
+/* =========================================================
+   POLICE — station + pursuit AI only in this pass (no traffic-law
+   detection beyond speeding/reckless collisions yet, no crime events).
+   Patrol cars roam continuously between random destinations (unlike the
+   fire trucks/ambulances, which stay garaged until dispatched) using the
+   same pickDestination()/curbsideMarkerPos()/computeRoadPath() machinery
+   as deliveries and the rival driver. Speed past a threshold for too
+   long, or plow into traffic/pedestrians, within range of a patrolling
+   car, and it breaks off to chase you — periodically re-pathing toward
+   your current position (not a one-shot path, since you're a moving
+   target) until it catches you or the chase times out.
+========================================================= */
+const PATROL_COUNT = 2;
+const POLICE_DETECT_RADIUS = 45;
+const POLICE_CATCH_RADIUS = 3.4;
+const SPEEDING_FRACTION = 0.86;   // of the current vehicle's max speed
+const SPEEDING_TRIGGER = 1.2;     // seconds sustained before it counts
+let policeStationInfo = null;
+const patrolCars = []; // {x,z,angle,speed,mesh,wheels,beaconR,beaconB,path,pathIndex,mode,pauseTimer,repathTimer}
+const wantedState = { active:false, timer:0, duration:45, cooldownTimer:0, cooldownDuration:10, chaser:null };
+let speedingTimer = 0;
+
+function buildPoliceStationBuilding(x,z){
+  const hx=13, hz=10, h=10;
+  addBuildingMesh(x,z,hx,hz,h,0x33455c,'flat','glass');
+  addCurb(x,z);
+  // Navy sign band across the facade.
+  const band = new THREE.Mesh(new THREE.BoxGeometry(hx*2+0.6,1.4,0.3), new THREE.MeshStandardMaterial({color:0x173158}));
+  band.position.set(x, 5.2, z+hz+0.08);
+  scene.add(band);
+  // Radio antenna on the roof corner.
+  const poleMat = new THREE.MeshStandardMaterial({color:0x8a8f96, metalness:0.6, roughness:0.4});
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.12,6,8), poleMat);
+  pole.position.set(x+hx-2.2, h+3, z-hz+2.2);
+  scene.add(pole);
+  const dispatch = curbsideMarkerPos({x,z,hx,hz,ix:POLICE_IX,iz:POLICE_IZ});
+  return { x,z,hx,hz,height:h, name:'Precinct 12', isPoliceStation:true, dispatch };
+}
+
+function buildPoliceCarMesh(){
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({color:0xf2f2f0, roughness:0.35, metalness:0.2});
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.9,0.82,4.3), bodyMat);
+  body.position.y=0.58; g.add(body);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.5,0.5,1.7), new THREE.MeshStandardMaterial({color:0x14161a, roughness:0.25}));
+  cabin.position.set(0,1.06,-0.15); g.add(cabin);
+  const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.4,0.42,0.08), new THREE.MeshStandardMaterial({color:0x1d2733,roughness:0.3}));
+  windshield.position.set(0,1.18,0.83); windshield.rotation.x=-0.18; g.add(windshield);
+  // Black rocker-panel stripe, embedded through the body's own centerline
+  // (same technique as every other vehicle's stripe) so it can't land
+  // exactly coplanar with the body's side faces.
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.92,0.3,4.32), new THREE.MeshStandardMaterial({color:0x14161a}));
+  stripe.position.set(0,0.42,0); g.add(stripe);
+  // Light bar, held clear of the roof surface with its own gap.
+  const lightbar = new THREE.Mesh(new THREE.BoxGeometry(1.1,0.16,0.4), new THREE.MeshStandardMaterial({color:0x111111}));
+  lightbar.position.set(0,1.44,-0.15); g.add(lightbar);
+  const beaconR = new THREE.Mesh(new THREE.SphereGeometry(0.1,8,8), new THREE.MeshStandardMaterial({color:0xff2a2a, emissive:0xff2a2a, emissiveIntensity:1.0}));
+  beaconR.position.set(-0.28,1.60,-0.15); g.add(beaconR);
+  const beaconB = new THREE.Mesh(new THREE.SphereGeometry(0.1,8,8), new THREE.MeshStandardMaterial({color:0x2a6bff, emissive:0x2a6bff, emissiveIntensity:1.0}));
+  beaconB.position.set(0.28,1.60,-0.15); g.add(beaconB);
+  const wheelMat = new THREE.MeshStandardMaterial({color:0x111111});
+  const wheels=[];
+  [[1.0,-1.55],[-1.0,-1.55],[1.0,1.55],[-1.0,1.55]].forEach(([wx,wz])=>{
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.36,0.36,0.3,10), wheelMat);
+    w.rotation.z=Math.PI/2; w.position.set(wx,0.36,wz); g.add(w); wheels.push(w);
+  });
+  const headlights = new THREE.Mesh(new THREE.BoxGeometry(1.7,0.18,0.06), new THREE.MeshStandardMaterial({color:0xfff7c0, emissive:0xfff7c0, emissiveIntensity:0.7}));
+  headlights.position.set(0,0.6,2.16); g.add(headlights);
+  // Floating label, same depthTest:false sprite technique as the rival's
+  // name tag — a billboard, so it can never z-fight with solid geometry.
+  const cnv=document.createElement('canvas'); cnv.width=200; cnv.height=56;
+  const ctx=cnv.getContext('2d');
+  ctx.fillStyle='rgba(20,22,34,0.88)';
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(2,2,196,52,12); else ctx.rect(2,2,196,52);
+  ctx.fill();
+  ctx.fillStyle='#8fd1ff'; ctx.font='bold 22px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('🚓 POLICE', 100, 28);
+  const tex = new THREE.CanvasTexture(cnv);
+  const label = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, depthTest:false, transparent:true}));
+  label.scale.set(2.5,0.7,1);
+  label.position.y=2.3;
+  label.renderOrder=902;
+  g.add(label);
+  castAll(g);
+  return { mesh:g, wheels, beaconR, beaconB };
+}
+
+function spawnPatrolCars(){
+  for(let i=0;i<PATROL_COUNT;i++){
+    const built = buildPoliceCarMesh();
+    const x = policeStationInfo.dispatch.x, z = policeStationInfo.dispatch.z;
+    built.mesh.position.set(x, terrainHeightAt(x,z), z);
+    scene.add(built.mesh);
+    patrolCars.push({
+      x, z, angle:-Math.PI/2, speed:0,
+      mesh: built.mesh, wheels: built.wheels, beaconR: built.beaconR, beaconB: built.beaconB,
+      path:null, pathIndex:0, mode:'pausedPatrol', pauseTimer:0.5+Math.random()*1.5, repathTimer:0
+    });
+  }
+}
+
+function pickNewPatrolRoute(p){
+  const dest = pickDestination(null);
+  if(!dest){ p.pauseTimer = 2.0; return; }
+  const dp = curbsideMarkerPos(dest);
+  const path = computeRoadPath(p.x, p.z, dp.x, dp.z);
+  if(!path){ p.pauseTimer = 2.0; return; }
+  p.path = path; p.pathIndex = 0; p.mode = 'patrol';
+}
+
+function tryGoWanted(){
+  if(wantedState.active || wantedState.cooldownTimer>0) return;
+  let nearest=null, nd=Infinity;
+  patrolCars.forEach(p=>{
+    if(p.mode!=='patrol' && p.mode!=='pausedPatrol') return;
+    const d = Math.hypot(p.x-player.x, p.z-player.z);
+    if(d<POLICE_DETECT_RADIUS && d<nd){ nd=d; nearest=p; }
+  });
+  if(!nearest) return;
+  nearest.mode = 'pursuing';
+  nearest.path = null;
+  nearest.repathTimer = 0;
+  wantedState.active = true;
+  wantedState.timer = wantedState.duration;
+  wantedState.chaser = nearest;
+  document.getElementById('police-panel').style.display = 'block';
+  toast('🚨 A patrol car spotted you — you\'re wanted!', 'bad');
+}
+
+function endPursuit(caught){
+  const p = wantedState.chaser;
+  if(p){ p.mode='pausedPatrol'; p.pauseTimer=1.0; p.path=null; }
+  wantedState.active = false;
+  wantedState.chaser = null;
+  wantedState.cooldownTimer = wantedState.cooldownDuration;
+  document.getElementById('police-panel').style.display = 'none';
+  if(!caught) toast('🚓 The police called off the chase.', null);
+}
+
+function bustPlayer(){
+  const fine = Math.min(15, state.money);
+  state.money -= fine;
+  toast('👮 Busted! -$'+fine.toFixed(2)+' fine', 'bad');
+  saveProgress();
+  endPursuit(true);
+}
+
+function updatePatrolCars(dt){
+  if(wantedState.active){
+    wantedState.timer -= dt;
+    if(wantedState.timer<=0){ endPursuit(false); }
+  } else if(wantedState.cooldownTimer>0){
+    wantedState.cooldownTimer -= dt;
+  }
+
+  for(let i=0;i<patrolCars.length;i++){
+    const p = patrolCars[i];
+
+    if(p.mode==='pausedPatrol'){
+      p.pauseTimer -= dt;
+      if(p.pauseTimer<=0) pickNewPatrolRoute(p);
+      continue;
+    }
+
+    // 'pursuingCrime' (chasing a bank robbery's getaway car) reuses the
+    // exact same repathing/chase logic as 'pursuing' (chasing the
+    // player) — just with a different, also-moving target.
+    const isChasing = p.mode==='pursuing' || p.mode==='pursuingCrime';
+    if(isChasing){
+      const chaseTarget = p.mode==='pursuing' ? player : (crimeState.active ? crimeState.getaway : null);
+      if(!chaseTarget){ p.mode='pausedPatrol'; p.pauseTimer=1.0; p.path=null; continue; }
+      const dCatch = Math.hypot(chaseTarget.x-p.x, chaseTarget.z-p.z);
+      if(dCatch < POLICE_CATCH_RADIUS){
+        if(p.mode==='pursuing') bustPlayer(); else resolveCrime('police');
+        continue;
+      }
+      p.repathTimer -= dt;
+      if(!p.path || p.path.length===0 || p.pathIndex>=p.path.length || p.repathTimer<=0){
+        const path = computeRoadPath(p.x, p.z, chaseTarget.x, chaseTarget.z);
+        if(path){ p.path = path; p.pathIndex = 0; }
+        p.repathTimer = 1.1 + Math.random()*0.4;
+      }
+    } else if(!p.path || p.path.length===0 || p.pathIndex>=p.path.length){
+      p.mode='pausedPatrol'; p.pauseTimer = 1.5+Math.random()*2.5; p.path=null;
+      continue;
+    }
+
+    if(!p.path) continue;
+    const target = p.path[p.pathIndex];
+    const dx = target.x-p.x, dz = target.z-p.z;
+    const dist = Math.hypot(dx,dz);
+    if(dist < 4){
+      p.pathIndex++;
+      if(p.pathIndex >= p.path.length && !isChasing){
+        p.mode='pausedPatrol'; p.pauseTimer = 1.5+Math.random()*2.5; p.path=null;
+        continue;
+      }
+    }
+
+    const bearing = Math.atan2(dx,dz);
+    let rel = bearing - p.angle;
+    while(rel>Math.PI) rel-=Math.PI*2;
+    while(rel<-Math.PI) rel+=Math.PI*2;
+    const maxTurn = (isChasing?2.8:2.2)*dt;
+    p.angle += Math.max(-maxTurn, Math.min(maxTurn, rel));
+    p.speed = isChasing ? 16 : 9;
+    p.x += Math.sin(p.angle)*p.speed*dt;
+    p.z += Math.cos(p.angle)*p.speed*dt;
+    const gy = terrainHeightAt(p.x,p.z);
+    p.mesh.position.set(p.x, gy, p.z);
+    p.mesh.rotation.y = p.angle;
+    const wheelSpin = p.speed*dt*1.6;
+    p.wheels.forEach(w=>{ w.rotation.x += wheelSpin; });
+    if(isChasing){
+      const blink = Math.sin(performance.now()*0.02+i)>0;
+      p.beaconR.material.emissiveIntensity = blink?1.3:0.1;
+      p.beaconB.material.emissiveIntensity = blink?0.1:1.3;
+    } else {
+      p.beaconR.material.emissiveIntensity = 0;
+      p.beaconB.material.emissiveIntensity = 0;
+    }
+  }
+}
+
+/* =========================================================
+   BANK ROBBERY / CRIME EVENTS — natural follow-up to the police system.
+   On its own independent periodic timer (like EMS), a getaway car peels
+   out from the bank and flees along the road network, re-picking a new
+   far destination every few seconds rather than following one fixed
+   route (an escaping driver, not a commuter). Whichever idle patrol car
+   is free gets dispatched after it, reusing the exact same
+   'pursuingCrime' chase logic in updatePatrolCars() above. The player
+   can also end it directly by ramming the getaway car at speed, for a
+   bigger reward than leaving it to the police.
+========================================================= */
+const CRIME_CHECK_MIN = 35, CRIME_CHECK_MAX = 75;
+const CRIME_DURATION = 50;
+const CRIME_CATCH_RADIUS = 3.2;
+const CRIME_RAM_SPEED = 6; // player must be moving at least this fast to "ram" the getaway car
+let bankInfo = null;
+const crimeState = { active:false, timer:0, duration:CRIME_DURATION, nextCheckIn: CRIME_CHECK_MIN+Math.random()*(CRIME_CHECK_MAX-CRIME_CHECK_MIN), getaway:null };
+
+function buildBankBuilding(x,z){
+  const hx=13, hz=10, h=12;
+  addBuildingMesh(x,z,hx,hz,h,0xe8e2d2,'flat','glass');
+  addCurb(x,z);
+  // A row of columns across the front, reading as a grand bank facade.
+  const colMat = new THREE.MeshStandardMaterial({color:0xf2efe6, roughness:0.5});
+  for(let i=-2;i<=2;i++){
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.45,7.5,10), colMat);
+    col.position.set(x+i*3.8, 3.75, z+hz+0.5);
+    scene.add(col);
+  }
+  const pediment = new THREE.Mesh(new THREE.BoxGeometry(hx*2+1, 0.9, 2.2), new THREE.MeshStandardMaterial({color:0xd8d2c4}));
+  pediment.position.set(x, 7.8, z+hz+0.4);
+  scene.add(pediment);
+  const dispatch = curbsideMarkerPos({x,z,hx,hz,ix:BANK_IX,iz:BANK_IZ});
+  return { x,z,hx,hz,height:h, name:'First Pizza Trust Bank', isBank:true, dispatch };
+}
+
+function resolveCrime(by){
+  if(!crimeState.active) return;
+  if(crimeState.getaway && crimeState.getaway.mesh) scene.remove(crimeState.getaway.mesh);
+  patrolCars.forEach(p=>{
+    if(p.mode==='pursuingCrime'){ p.mode='pausedPatrol'; p.pauseTimer=1.0; p.path=null; }
+  });
+  crimeState.active = false;
+  crimeState.getaway = null;
+  document.getElementById('crime-panel').style.display = 'none';
+  if(by==='player'){
+    const bonus = 30;
+    state.money += bonus;
+    toast('🚔 You blocked the getaway car! +$'+bonus.toFixed(2)+' reward', 'good');
+    saveProgress();
+  } else if(by==='police'){
+    toast('🚔 Police caught the getaway car!', 'good');
+  } else {
+    toast('😤 The crooks got away...', 'bad');
+  }
+}
+
+function tryTriggerRobbery(){
+  if(crimeState.active || !bankInfo) return;
+  const mesh = buildCarMesh(0x151515);
+  const sp = bankInfo.dispatch;
+  mesh.position.set(sp.x, terrainHeightAt(sp.x,sp.z), sp.z);
+  scene.add(mesh);
+  crimeState.getaway = { x:sp.x, z:sp.z, angle:0, speed:0, mesh, path:null, pathIndex:0, repathTimer:0, t:0 };
+  crimeState.active = true;
+  crimeState.timer = crimeState.duration;
+  document.getElementById('crime-panel').style.display = 'block';
+  toast('🚨 Bank robbery in progress — a car is fleeing the scene!', 'bad');
+  const idle = patrolCars.find(p=>p.mode==='patrol' || p.mode==='pausedPatrol');
+  if(idle){
+    idle.mode='pursuingCrime'; idle.path=null; idle.repathTimer=0;
+    toast('🚓 A patrol car is in pursuit!', null);
+  }
+}
+
+function updateCrime(dt){
+  if(!crimeState.active) return;
+  const g = crimeState.getaway;
+  crimeState.timer -= dt;
+  if(crimeState.timer<=0){ resolveCrime('escaped'); return; }
+
+  // The player can end it directly by ramming the getaway car at speed.
+  const pd = Math.hypot(player.x-g.x, player.z-g.z);
+  if(pd < CRIME_CATCH_RADIUS && Math.abs(player.speed) > CRIME_RAM_SPEED){ resolveCrime('player'); return; }
+
+  g.t += dt;
+  g.repathTimer -= dt;
+  if(!g.path || g.path.length===0 || g.pathIndex>=g.path.length || g.repathTimer<=0){
+    const ang = Math.random()*Math.PI*2;
+    const tx = Math.max(TOWN_MIN_X+20, Math.min(TOWN_MAX_X-20, g.x+Math.cos(ang)*140));
+    const tz = Math.max(TOWN_MIN_Z+20, Math.min(TOWN_MAX_Z-20, g.z+Math.sin(ang)*140));
+    const path = computeRoadPath(g.x, g.z, tx, tz);
+    if(path){ g.path = path; g.pathIndex = 0; }
+    g.repathTimer = 3.5 + Math.random()*2;
+  }
+  if(!g.path) return;
+
+  const target = g.path[g.pathIndex];
+  const dx = target.x-g.x, dz = target.z-g.z;
+  const dist = Math.hypot(dx,dz);
+  if(dist < 4){
+    g.pathIndex++;
+    if(g.pathIndex >= g.path.length) g.path = null;
+  }
+  const bearing = Math.atan2(dx,dz);
+  let rel = bearing - g.angle;
+  while(rel>Math.PI) rel-=Math.PI*2;
+  while(rel<-Math.PI) rel+=Math.PI*2;
+  const maxTurn = 2.6*dt;
+  g.angle += Math.max(-maxTurn, Math.min(maxTurn, rel));
+  g.speed = 15;
+  g.x += Math.sin(g.angle)*g.speed*dt;
+  g.z += Math.cos(g.angle)*g.speed*dt;
+  const gy = terrainHeightAt(g.x,g.z);
+  g.mesh.position.set(g.x, gy, g.z);
+  g.mesh.rotation.y = g.angle;
+}
+
+/* =========================================================
+   CONSTRUCTION SITES — a fixed number of ordinary city lots are picked
+   at world-gen time (excluding the five reserved special blocks) to be
+   active construction sites instead of a normal finished building. Each
+   one grows from a bare foundation to its final height over several
+   minutes, with a crane, cement mixer, excavator and a couple of workers
+   animating the whole time, then "completes" into a normal-looking
+   building and stops animating. Collision/terrain-flattening uses the
+   site's fixed footprint (hx/hz) from the start — only the visual height
+   grows — so this never disturbs pathfinding, deliveries, or the
+   terrain pads the way changing a footprint at runtime would.
+========================================================= */
+const CONSTRUCTION_SITE_COUNT = 3;
+const constructionSites = [];
+
+// Picks cells for construction sites, avoiding the five reserved blocks
+// and keeping sites spaced at least two blocks apart from each other so
+// they don't cluster into one mega-site.
+function pickConstructionSiteCells(count){
+  const reserved = new Set([
+    '0,0',
+    FIREHOUSE_IX+','+FIREHOUSE_IZ,
+    HOSPITAL_IX+','+HOSPITAL_IZ,
+    POLICE_IX+','+POLICE_IZ,
+    BANK_IX+','+BANK_IZ
+  ]);
+  const candidates = [];
+  for(let ix=IX_RANGE[0]; ix<=IX_RANGE[1]; ix++){
+    for(let iz=IZ_RANGE[0]; iz<=IZ_RANGE[1]; iz++){
+      if(ix===0 && iz===0) continue;
+      if(reserved.has(ix+','+iz)) continue;
+      candidates.push({ix,iz});
+    }
+  }
+  for(let i=candidates.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    const tmp = candidates[i]; candidates[i]=candidates[j]; candidates[j]=tmp;
+  }
+  const picked = [];
+  for(const c of candidates){
+    if(picked.length>=count) break;
+    const tooClose = picked.some(p=>Math.abs(p.ix-c.ix)<2 && Math.abs(p.iz-c.iz)<2);
+    if(!tooClose) picked.push(c);
+  }
+  return picked;
+}
+
+function buildWorkerMesh(){
+  // Wraps the existing pedestrian mesh (torso/head/arms) with a hard hat
+  // and a safety vest, built as an outer group rather than added inside
+  // the pedestrian's own group, so the hat/vest don't inherit its random
+  // per-pedestrian height scale and distort.
+  const g = new THREE.Group();
+  const body = buildPedestrianMesh();
+  g.add(body);
+  const hat = new THREE.Mesh(new THREE.SphereGeometry(0.19,10,8,0,Math.PI*2,0,Math.PI/2), new THREE.MeshStandardMaterial({color:0xf4c24d, roughness:0.5}));
+  hat.position.y = 1.62;
+  g.add(hat);
+  const vest = new THREE.Mesh(new THREE.CylinderGeometry(0.19,0.16,0.3,8), new THREE.MeshStandardMaterial({color:0xff7a1a}));
+  vest.position.y = 1.15;
+  g.add(vest);
+  castAll(g);
+  return g;
+}
+
+function buildSiteFence(x,z,gy,hx,hz){
+  const group = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({color:0xff7a1a, roughness:0.6});
+  const barH=1.1, barT=0.12;
+  const fhx = hx+2.5, fhz = hz+2.5;
+  const specs = [
+    [x, z-fhz, fhx*2, barT],
+    [x, z+fhz, fhx*2, barT],
+    [x-fhx, z, barT, fhz*2],
+    [x+fhx, z, barT, fhz*2]
+  ];
+  specs.forEach(([px,pz,sx,sz])=>{
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(sx, barH, sz), mat);
+    bar.position.set(px, gy+barH/2, pz);
+    group.add(bar);
+  });
+  scene.add(group);
+  return group;
+}
+
+function buildCraneRig(hx,hz){
+  const group = new THREE.Group();
+  const mastMat = new THREE.MeshStandardMaterial({color:0xf4c24d, roughness:0.5, metalness:0.3});
+  const mastH = 30 + Math.random()*10;
+  const mast = new THREE.Mesh(new THREE.BoxGeometry(0.8,mastH,0.8), mastMat);
+  mast.position.set(0, mastH/2, 0);
+  group.add(mast);
+  const jibGroup = new THREE.Group();
+  jibGroup.position.set(0, mastH, 0);
+  const jibLen = Math.max(hx,hz)*1.3;
+  const jib = new THREE.Mesh(new THREE.BoxGeometry(0.45,0.45,jibLen), mastMat);
+  jib.position.set(0,0.3,jibLen/2);
+  jibGroup.add(jib);
+  const hookBaseY = -mastH*0.4;
+  const hook = new THREE.Mesh(new THREE.BoxGeometry(0.35,0.35,0.35), new THREE.MeshStandardMaterial({color:0x2c2e33, metalness:0.6}));
+  hook.position.set(0, hookBaseY, jibLen-3);
+  jibGroup.add(hook);
+  group.add(jibGroup);
+  castAll(group);
+  return { group, jib: jibGroup, hook, hookBaseY, hookAngle: Math.random()*Math.PI*2 };
+}
+
+function buildMixerMesh(){
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({color:0xd8842a, roughness:0.5, metalness:0.2});
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.0,1.6,4.6), bodyMat);
+  body.position.set(0,0.9,0); g.add(body);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.8,1.3,1.4), new THREE.MeshStandardMaterial({color:0xe0dace, roughness:0.4}));
+  cab.position.set(0,1.2,2.6); g.add(cab);
+  const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.75,0.55,2.6,10), new THREE.MeshStandardMaterial({color:0xb0a89a, roughness:0.6, metalness:0.3}));
+  drum.rotation.x = Math.PI*0.32;
+  drum.position.set(0,1.9,-0.6);
+  g.add(drum);
+  const wheelMat = new THREE.MeshStandardMaterial({color:0x111111});
+  [[1.05,1.6],[-1.05,1.6],[1.05,-1.2],[-1.05,-1.2],[1.05,-2.1],[-1.05,-2.1]].forEach(([wx,wz])=>{
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,0.34,10), wheelMat);
+    w.rotation.z=Math.PI/2; w.position.set(wx,0.4,wz); g.add(w);
+  });
+  castAll(g);
+  return { mesh:g, drum };
+}
+
+function buildExcavatorMesh(){
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.BoxGeometry(2.0,0.5,2.6), new THREE.MeshStandardMaterial({color:0xd8842a, roughness:0.6}));
+  base.position.set(0,0.4,0); g.add(base);
+  const trackMat = new THREE.MeshStandardMaterial({color:0x1c1c1c});
+  [1.05,-1.05].forEach(tx=>{
+    const track = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.5,3.0), trackMat);
+    track.position.set(tx,0.3,0); g.add(track);
+  });
+  // Cab sits very slightly embedded into the base's top (1.12 vs the
+  // base's true top of 1.15... see the 0.03 overlap below) rather than
+  // flush, so its bottom face can't land exactly coplanar with the
+  // base's top face.
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.5,1.0,1.7), new THREE.MeshStandardMaterial({color:0xf4c24d, roughness:0.5}));
+  cab.position.set(0,1.12,0.1); g.add(cab);
+  const armGroup = new THREE.Group();
+  armGroup.position.set(0,1.4,0.9);
+  g.add(armGroup);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.32,0.32,2.2), new THREE.MeshStandardMaterial({color:0xd8842a}));
+  arm.position.set(0,0,1.1);
+  armGroup.add(arm);
+  const bucketGroup = new THREE.Group();
+  bucketGroup.position.set(0,0,2.2);
+  armGroup.add(bucketGroup);
+  const bucket = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.45,0.5), new THREE.MeshStandardMaterial({color:0x555555}));
+  bucket.position.set(0,-0.25,0.15);
+  bucketGroup.add(bucket);
+  castAll(g);
+  return { mesh:g, arm: armGroup, bucket: bucketGroup };
+}
+
+function buildConstructionSite(cx,cz,ix,iz,dist){
+  const hx=20, hz=20;
+  const finalHeight = 16 + Math.random()*26;
+  // Register before any terrainHeightAt/mesh placement, same as every
+  // other building, so the flattening pad is active immediately.
+  const building = { x:cx, z:cz, hx, hz, height:finalHeight, ix, iz, dist, isConstructionSite:true, constructionComplete:false };
+  registerBuilding(building);
+
+  const pal = palettes[dist] || palettes.downtown;
+  const finishColor = jitterColor(pal[Math.floor(Math.random()*pal.length)]);
+  const gy = terrainHeightAt(cx,cz);
+
+  const structureMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(hx*2, 1, hz*2),
+    new THREE.MeshStandardMaterial({color:0x9c9388, roughness:0.85})
+  );
+  structureMesh.position.set(cx, gy+0.5, cz);
+  scene.add(structureMesh);
+
+  const rebarGroup = new THREE.Group();
+  const rebarMat = new THREE.MeshStandardMaterial({color:0x8a7a6a, metalness:0.4, roughness:0.6});
+  for(let i=0;i<10;i++){
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,1.4,5), rebarMat);
+    rod.position.set((Math.random()*2-1)*hx*0.85, 0.7, (Math.random()*2-1)*hz*0.85);
+    rebarGroup.add(rod);
+  }
+  rebarGroup.position.set(cx, gy+0.5, cz);
+  scene.add(rebarGroup);
+
+  const fenceGroup = buildSiteFence(cx, cz, gy, hx, hz);
+
+  const craneRig = buildCraneRig(hx, hz);
+  craneRig.group.position.set(cx - hx - 3, gy, cz - hz - 3);
+  scene.add(craneRig.group);
+
+  const mixerBuilt = buildMixerMesh();
+  mixerBuilt.mesh.position.set(cx + hx + 5, gy, cz - hz + 2);
+  mixerBuilt.mesh.rotation.y = Math.PI*0.3;
+  scene.add(mixerBuilt.mesh);
+
+  const excBuilt = buildExcavatorMesh();
+  excBuilt.mesh.position.set(cx - hx - 4, gy, cz + hz - 2);
+  excBuilt.mesh.rotation.y = -Math.PI*0.4;
+  scene.add(excBuilt.mesh);
+
+  const workers = [];
+  for(let i=0;i<2;i++){
+    const wm = buildWorkerMesh();
+    const wx = cx + (Math.random()*2-1)*hx*0.6, wz = cz + (Math.random()*2-1)*hz*0.6;
+    const wgy = terrainHeightAt(wx,wz);
+    wm.position.set(wx, wgy, wz);
+    wm.rotation.y = Math.random()*Math.PI*2;
+    scene.add(wm);
+    workers.push({ mesh: wm, t: Math.random()*10, baseY: wgy });
+  }
+
+  constructionSites.push({
+    building, x:cx, z:cz, hx, hz, finalHeight, finishColor, groundY:gy,
+    progress: 0.03, buildDuration: 110+Math.random()*70,
+    structureMesh, rebarGroup, fenceGroup,
+    crane: craneRig, mixer: mixerBuilt, excavator: excBuilt,
+    workers, complete:false
+  });
+}
+
+function completeConstructionSite(s){
+  s.complete = true;
+  s.building.constructionComplete = true;
+  scene.remove(s.fenceGroup);
+  scene.remove(s.rebarGroup);
+  scene.remove(s.crane.group);
+  scene.remove(s.mixer.mesh);
+  scene.remove(s.excavator.mesh);
+  s.workers.forEach(w=>scene.remove(w.mesh));
+  s.structureMesh.material.color.set(s.finishColor);
+  toast('🏗️ Construction finished — a new building is open downtown!', 'good');
+}
+
+function updateConstructionSites(dt){
+  for(let i=0;i<constructionSites.length;i++){
+    const s = constructionSites[i];
+    if(s.complete) continue;
+
+    s.progress = Math.min(1, s.progress + dt/s.buildDuration);
+    const h = Math.max(1.5, s.finalHeight*s.progress);
+    s.structureMesh.scale.y = h;
+    s.structureMesh.position.y = s.groundY + h/2;
+    s.rebarGroup.position.y = s.groundY + h;
+
+    s.crane.hookAngle += dt*0.22;
+    s.crane.jib.rotation.y = s.crane.hookAngle;
+    s.crane.hook.position.y = s.crane.hookBaseY + Math.sin(s.crane.hookAngle*2.3)*1.4;
+
+    s.mixer.drum.rotation.z += dt*1.8;
+
+    s.excavator.arm.rotation.x = -0.35 + Math.sin(performance.now()*0.0009+i)*0.3;
+    s.excavator.bucket.rotation.x = Math.sin(performance.now()*0.0009+i+0.8)*0.5;
+
+    s.workers.forEach(w=>{
+      w.t += dt;
+      w.mesh.position.y = w.baseY + Math.abs(Math.sin(w.t*5))*0.12;
+      w.mesh.rotation.y += Math.sin(w.t*2)*0.01;
+    });
+
+    if(s.progress>=1 && !s.complete) completeConstructionSite(s);
   }
 }
 
@@ -1479,13 +2743,42 @@ function buildTown(){
   // itself (same fix applied to every other building below).
   registerBuilding({x:0, z:0, hx:11, hz:11, height:9, ix:0, iz:0, dist:'downtown', isShop:true});
   shopInfo = makeShopBuilding(0,0);
+  // Same reservation pattern as the shop, one block over: register the
+  // firehouse's footprint before its mesh goes up, then skip its cell in
+  // the main generation loop below.
+  registerBuilding({x:FIREHOUSE_IX*BLOCK, z:FIREHOUSE_IZ*BLOCK, hx:13, hz:10, height:11, ix:FIREHOUSE_IX, iz:FIREHOUSE_IZ, dist:'downtown', isFirehouse:true});
+  firehouseInfo = buildFirehouseBuilding(FIREHOUSE_IX*BLOCK, FIREHOUSE_IZ*BLOCK);
+  // Same pattern again for the hospital, on its own reserved block.
+  registerBuilding({x:HOSPITAL_IX*BLOCK, z:HOSPITAL_IZ*BLOCK, hx:14, hz:11, height:13, ix:HOSPITAL_IX, iz:HOSPITAL_IZ, dist:'downtown', isHospital:true});
+  hospitalInfo = buildHospitalBuilding(HOSPITAL_IX*BLOCK, HOSPITAL_IZ*BLOCK);
+  // Fourth reserved block, on another diagonal from the shop: the police
+  // station.
+  registerBuilding({x:POLICE_IX*BLOCK, z:POLICE_IZ*BLOCK, hx:13, hz:10, height:10, ix:POLICE_IX, iz:POLICE_IZ, dist:'downtown', isPoliceStation:true});
+  policeStationInfo = buildPoliceStationBuilding(POLICE_IX*BLOCK, POLICE_IZ*BLOCK);
+  // Fifth and last reserved block, rounding out all four diagonals around
+  // the shop: the bank (a robbery target for the crime-event system).
+  registerBuilding({x:BANK_IX*BLOCK, z:BANK_IZ*BLOCK, hx:13, hz:10, height:12, ix:BANK_IX, iz:BANK_IZ, dist:'downtown', isBank:true});
+  bankInfo = buildBankBuilding(BANK_IX*BLOCK, BANK_IZ*BLOCK);
+
+  // A handful of ordinary lots (picked now, excluding the five reserved
+  // blocks above) become active construction sites instead of a normal
+  // building when the main loop below reaches their cell.
+  const siteCells = pickConstructionSiteCells(CONSTRUCTION_SITE_COUNT);
+  const siteCellKeys = new Set(siteCells.map(c=>c.ix+','+c.iz));
+
   for(let ix=IX_RANGE[0]; ix<=IX_RANGE[1]; ix++){
     for(let iz=IZ_RANGE[0]; iz<=IZ_RANGE[1]; iz++){
       if(ix===0 && iz===0) continue;
+      if(ix===FIREHOUSE_IX && iz===FIREHOUSE_IZ) continue;
+      if(ix===HOSPITAL_IX && iz===HOSPITAL_IZ) continue;
+      if(ix===POLICE_IX && iz===POLICE_IZ) continue;
+      if(ix===BANK_IX && iz===BANK_IZ) continue;
       const cx = ix*BLOCK, cz = iz*BLOCK;
       const dist = districtOf(ix);
       addCurb(cx,cz);
-      if(dist==='downtown'){
+      if(siteCellKeys.has(ix+','+iz)){
+        buildConstructionSite(cx,cz,ix,iz,dist);
+      } else if(dist==='downtown'){
         buildDowntownBlock(cx,cz,ix,iz);
       } else {
         buildSpacedBlock(cx,cz,ix,iz,dist);
@@ -2703,6 +3996,7 @@ function curbsideMarkerPos(b){
 function pickDestination(excludeBuildings){
   const pool = buildings.filter(b=>{
     if(b.isShop) return false; // never deliver back to the shop itself
+    if(b.isConstructionSite && !b.constructionComplete) return false; // nothing to deliver to yet
     if(excludeBuildings && excludeBuildings.has(b)) return false; // no two active orders to the same address
     if(b.dist==='suburbs' && !state.unlocked.suburbs) return false;
     if(b.dist==='industrial' && !state.unlocked.industrial) return false;
@@ -2898,7 +4192,6 @@ function update(dt){
   // ----- Storm tick: sky blend easing, timer, lightning, rain -----
   const skyTargetBlend = stormState.active ? 1 : 0;
   stormState.skyBlend += (skyTargetBlend - stormState.skyBlend) * Math.min(1, dt*0.6);
-  applySkyBlend(stormState.skyBlend);
   updateRain(dt);
   if(stormState.active){
     stormState.timer -= dt;
@@ -2912,6 +4205,65 @@ function update(dt){
   } else if(stormState.cooldownTimer>0){
     stormState.cooldownTimer -= dt;
   }
+
+  // ----- Zombie apocalypse tick -----
+  const zombieTargetBlend = zombieState.active ? 1 : 0;
+  zombieState.skyBlend += (zombieTargetBlend - zombieState.skyBlend) * Math.min(1, dt*0.6);
+  if(zombieState.active){
+    zombieState.timer -= dt;
+    if(zombieState.timer<=0){ endApocalypse(true); }
+  } else if(zombieState.cooldownTimer>0){
+    zombieState.cooldownTimer -= dt;
+  }
+  updateZombies(dt);
+
+  // ----- Fire department tick: independent of storm active/inactive —
+  // once a building's alight it keeps burning (and keeps getting fought)
+  // even after the storm itself has passed. -----
+  updateFires(dt);
+  updateFireTrucks(dt);
+
+  // ----- EMS tick: on its own independent periodic timer, not tied to
+  // the storm system at all. -----
+  emergencyState.nextCheckIn -= dt;
+  if(emergencyState.nextCheckIn<=0){
+    emergencyState.nextCheckIn = 25+Math.random()*30;
+    if(Math.random()<0.5) tryTriggerEmergency();
+  }
+  updateEmergencies(dt);
+  updateAmbulances(dt);
+
+  // ----- Police tick: patrol cars roam continuously; speeding or a
+  // reckless collision (hooked in below, near those collision blocks)
+  // can put you on their radar if one's close enough. -----
+  if(Math.abs(player.speed) > stats.maxSpeed*SPEEDING_FRACTION){
+    speedingTimer += dt;
+    if(speedingTimer > SPEEDING_TRIGGER) tryGoWanted();
+  } else {
+    speedingTimer = Math.max(0, speedingTimer - dt*2);
+  }
+  updatePatrolCars(dt);
+
+  // ----- Crime tick: its own independent periodic timer, same pattern
+  // as EMS. -----
+  if(!crimeState.active){
+    crimeState.nextCheckIn -= dt;
+    if(crimeState.nextCheckIn<=0){
+      crimeState.nextCheckIn = CRIME_CHECK_MIN+Math.random()*(CRIME_CHECK_MAX-CRIME_CHECK_MIN);
+      tryTriggerRobbery();
+    }
+  }
+  updateCrime(dt);
+
+  // ----- Construction sites: always ticking, independent of every other
+  // event system. -----
+  updateConstructionSites(dt);
+
+  // Only one event's atmosphere applies at a time (mutually exclusive by
+  // the trigger buttons below), so whichever still has any blend showing
+  // wins; with neither active this settles back to fully clear.
+  if(stormState.skyBlend > zombieState.skyBlend) applySkyBlend(stormState.skyBlend, STORM_SKY);
+  else applySkyBlend(zombieState.skyBlend, APOCALYPSE_SKY);
 
   if(state.keys.f)       player.speed += stats.accel * dt;
   else if(state.keys.b)  player.speed -= stats.accel * 0.85 * dt;
@@ -3151,30 +4503,37 @@ function update(dt){
         applyDamage(c.dmg); state.invuln=0.6;
         applyKnockback();
         toast(c.type==='truck' ? 'Crashed into a truck! 🚚' : 'Crashed into traffic! 🚗', 'bad');
+        tryGoWanted(); // reckless driving — a nearby patrol car may give chase
       }
     }
   }
 
-  for(let i=0;i<pedestrians.length;i++){
-    const p = pedestrians[i];
-    p.pos += p.speed*p.dir*dt;
-    if(p.pos>p.max){ p.pos=p.max; p.dir=-1; }
-    if(p.pos<p.min){ p.pos=p.min; p.dir=1; }
-    let px,pz,ang;
-    if(p.axis==='x'){ px=p.center+p.pos; pz=p.cross; ang = p.dir>0?Math.PI/2:-Math.PI/2; }
-    else { px=p.cross; pz=p.center+p.pos; ang = p.dir>0?0:Math.PI; }
-    p.bob += dt*7;
-    p.mesh.position.set(px, Math.abs(Math.sin(p.bob))*0.05, pz);
-    p.mesh.rotation.y = ang;
-    const pdx=player.x-px, pdz=player.z-pz;
-    const prad = PLAYER_RADIUS+0.4;
-    if(pdx*pdx+pdz*pdz < prad*prad){
-      const dist = Math.hypot(pdx,pdz)||0.001;
-      const pnx=pdx/dist, pnz=pdz/dist;
-      player.x += pnx*(prad-dist); player.z += pnz*(prad-dist);
-      cancelIntoWall(pnx,pnz);
-      player.speed *= 0.75;
-      if(state.invuln<=0){ applyDamage(3); state.invuln=0.5; toast('Watch out for pedestrians! 🚶','bad'); }
+  if(!zombieState.active){
+    for(let i=0;i<pedestrians.length;i++){
+      const p = pedestrians[i];
+      p.pos += p.speed*p.dir*dt;
+      if(p.pos>p.max){ p.pos=p.max; p.dir=-1; }
+      if(p.pos<p.min){ p.pos=p.min; p.dir=1; }
+      let px,pz,ang;
+      if(p.axis==='x'){ px=p.center+p.pos; pz=p.cross; ang = p.dir>0?Math.PI/2:-Math.PI/2; }
+      else { px=p.cross; pz=p.center+p.pos; ang = p.dir>0?0:Math.PI; }
+      p.bob += dt*7;
+      p.mesh.position.set(px, Math.abs(Math.sin(p.bob))*0.05, pz);
+      p.mesh.rotation.y = ang;
+      const pdx=player.x-px, pdz=player.z-pz;
+      const prad = PLAYER_RADIUS+0.4;
+      if(pdx*pdx+pdz*pdz < prad*prad){
+        const dist = Math.hypot(pdx,pdz)||0.001;
+        const pnx=pdx/dist, pnz=pdz/dist;
+        player.x += pnx*(prad-dist); player.z += pnz*(prad-dist);
+        cancelIntoWall(pnx,pnz);
+        player.speed *= 0.75;
+        if(state.invuln<=0){
+          applyDamage(3); state.invuln=0.5;
+          toast('Watch out for pedestrians! 🚶','bad');
+          tryGoWanted(); // reckless driving — a nearby patrol car may give chase
+        }
+      }
     }
   }
 
@@ -3593,6 +4952,46 @@ function drawMinimap(){
   mctx.font='6px sans-serif'; mctx.textAlign='center'; mctx.textBaseline='middle';
   mctx.fillText('🍕', shopMx, shopMz-2);
 
+  activeFires.forEach(fire=>{
+    const fx=mapX(fire.x), fz=mapZ(fire.z);
+    mctx.fillStyle='#ff5a1f';
+    mctx.beginPath();
+    mctx.arc(fx, fz-2, 4.5, 0, Math.PI*2);
+    mctx.fill();
+    mctx.font='6px sans-serif'; mctx.textAlign='center'; mctx.textBaseline='middle';
+    mctx.fillText('🔥', fx, fz-2);
+  });
+
+  activeEmergencies.forEach(e=>{
+    const ex=mapX(e.x), ez=mapZ(e.z);
+    mctx.fillStyle='#3d96ff';
+    mctx.beginPath();
+    mctx.arc(ex, ez-2, 4.5, 0, Math.PI*2);
+    mctx.fill();
+    mctx.font='6px sans-serif'; mctx.textAlign='center'; mctx.textBaseline='middle';
+    mctx.fillText('🚨', ex, ez-2);
+  });
+
+  if(wantedState.active && wantedState.chaser){
+    const cx2=mapX(wantedState.chaser.x), cz2=mapZ(wantedState.chaser.z);
+    mctx.fillStyle='#ff3d3d';
+    mctx.beginPath();
+    mctx.arc(cx2, cz2-2, 4.5, 0, Math.PI*2);
+    mctx.fill();
+    mctx.font='6px sans-serif'; mctx.textAlign='center'; mctx.textBaseline='middle';
+    mctx.fillText('🚓', cx2, cz2-2);
+  }
+
+  if(crimeState.active && crimeState.getaway){
+    const gx2=mapX(crimeState.getaway.x), gz2=mapZ(crimeState.getaway.z);
+    mctx.fillStyle='#ffc43d';
+    mctx.beginPath();
+    mctx.arc(gx2, gz2-2, 4.5, 0, Math.PI*2);
+    mctx.fill();
+    mctx.font='6px sans-serif'; mctx.textAlign='center'; mctx.textBaseline='middle';
+    mctx.fillText('🏎️', gx2, gz2-2);
+  }
+
   state.orders.forEach(order=>{
     const dpx=mapX(order.dropPoint.x), dpz=mapZ(order.dropPoint.z);
     const isUrgent = order===mostUrgentOrder();
@@ -3679,6 +5078,13 @@ function updateHUD(){
   document.getElementById('rival-them').textContent = rivalRound.rivalCount;
   document.getElementById('rival-timer-fill').style.width = Math.max(0, (rivalRound.timer/rivalRound.duration)*100)+'%';
   if(stormState.active) document.getElementById('storm-timer').textContent = Math.ceil(stormState.timer);
+  if(zombieState.active) document.getElementById('zombie-timer').textContent = Math.ceil(zombieState.timer);
+  document.getElementById('fire-panel').style.display = activeFires.length>0 ? 'block' : 'none';
+  if(activeFires.length>0) document.getElementById('fire-count').textContent = activeFires.length;
+  document.getElementById('ems-panel').style.display = activeEmergencies.length>0 ? 'block' : 'none';
+  if(activeEmergencies.length>0) document.getElementById('ems-count').textContent = activeEmergencies.length;
+  document.getElementById('police-panel').style.display = wantedState.active ? 'block' : 'none';
+  if(wantedState.active) document.getElementById('police-timer').textContent = Math.ceil(wantedState.timer);
   drawMinimap();
 }
 
@@ -3889,10 +5295,21 @@ document.getElementById('districts-close').addEventListener('click', ()=>{
 const STORM_COST = 60;
 document.getElementById('storm-btn').addEventListener('click', ()=>{
   if(stormState.active){ toast('A storm is already raging!', 'bad'); return; }
+  if(zombieState.active){ toast('Deal with the apocalypse first!', 'bad'); return; }
   if(stormState.cooldownTimer>0){ toast('Storm system recharging — '+Math.ceil(stormState.cooldownTimer)+'s left', 'bad'); return; }
   if(state.money < STORM_COST){ toast('Need $'+STORM_COST.toFixed(2)+' to call in a storm', 'bad'); return; }
   state.money -= STORM_COST;
   startStorm();
+});
+
+const ZOMBIE_COST = 80;
+document.getElementById('zombie-btn').addEventListener('click', ()=>{
+  if(zombieState.active){ toast('The dead are already loose!', 'bad'); return; }
+  if(stormState.active){ toast('Wait for the storm to clear first!', 'bad'); return; }
+  if(zombieState.cooldownTimer>0){ toast('The graveyard is quiet for now — '+Math.ceil(zombieState.cooldownTimer)+'s left', 'bad'); return; }
+  if(state.money < ZOMBIE_COST){ toast('Need $'+ZOMBIE_COST.toFixed(2)+' to raise the dead', 'bad'); return; }
+  state.money -= ZOMBIE_COST;
+  startApocalypse();
 });
 
 document.getElementById('start-btn').addEventListener('click', ()=>{
@@ -3970,6 +5387,9 @@ async function boot(){
 
   applyVehicleMesh(state.currentVehicle);
   spawnRival();
+  spawnFireTrucks();
+  spawnAmbulances();
+  spawnPatrolCars();
   buildRain();
 
   updateDamageUI();
