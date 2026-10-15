@@ -300,6 +300,8 @@
     <div class="tbtn" id="t-back">▼</div>
     <div class="tbtn" id="t-fwd">▲</div>
     <div class="tbtn" id="t-right">⟳</div>
+    <div class="tbtn heli-only" id="t-up" style="display:none">⤒</div>
+    <div class="tbtn heli-only" id="t-down" style="display:none">⤓</div>
   </div>
 </div>
 
@@ -312,13 +314,15 @@
       <div>🍕 <b>Pick up</b> orders on the driveway outside Tony's Pizza Shop — a glowing green beacon marks the spot, even through buildings. The shop itself is solid, so pull up alongside it rather than through it.</div>
       <div>📦 <b>Capacity</b> depends on your vehicle — a scooter carries one pizza at a time, a Delivery Van loads up to four in a single stop. Each pizza has its own address and its own freshness clock.</div>
       <div>🏎️ <b>Rico's Pizza</b> is out delivering too — you'll see their purple car (and a dot on the map) racing around the city. Every couple minutes your deliveries are compared: outdeliver them for a cash bonus, fall behind and they take a cut.</div>
-      <div>⛈️ <b>Call in a storm</b> ($60, next to the garage button) for a supercell that darkens the sky, gusts wind hard enough to push you off course, and drops debris piles in the streets. Survive the full storm for a cash bonus.</div>
+      <div>⛈️ <b>Call in a storm</b> ($60, next to the garage button) for a supercell that darkens the sky, gusts wind hard enough to push you off course, and drops debris piles in the streets. You can still thread through the wreckage, but fire trucks, ambulances and patrol cars won't — they reroute around blocked streets, and calls for help get a lot more frequent while the storm rages. Survive the full storm for a cash bonus.</div>
       <div>🧟 <b>Unleash the undead</b> ($80) and the sidewalks empty out — fast zombies converge on you from every direction, and being caught costs you damage. Survive the full 2 minutes for a bigger bonus.</div>
       <div>🚒 <b>Lightning from a storm</b> can strike and set a building ablaze — Firehouse 7, one block from the shop, dispatches trucks automatically to fight it. Steer clear of the flames yourself, they'll singe your vehicle too.</div>
       <div>🚑 <b>Medical emergencies</b> pop up on their own around the city — County General dispatches ambulances automatically to treat and transport. No action needed from you, just stay out of their way.</div>
       <div>🚓 <b>Patrol cars</b> roam the streets from Precinct 12 — speed for too long or plow into traffic/pedestrians near one and you'll go WANTED. Outrun or evade the chase before the timer runs out, or get busted and pay a fine.</div>
       <div>🏦 <b>Bank robberies</b> happen on their own — a getaway car peels out and a patrol car gives chase. Ram the getaway car yourself for a bigger cash reward than leaving it to the police.</div>
       <div>🏗️ <b>Construction sites</b> dot the city — cranes, mixers, excavators and crews work for real, and the building actually grows and finishes over time.</div>
+      <div>🛠️ <b>Repair crews</b> move in after the fact — fire-scarred buildings get patched up once the blaze is out, and storm wreckage gets cleared from the streets once the weather passes. Give them room; no deliveries to a building mid-repair.</div>
+      <div>🚁 <b>Helicopters</b>: buy the Pizza Chopper ($550) in the garage — it flies over buildings, rivers and traffic. <b>Hold Space (or E) to ascend, hold Shift (or Q) to descend</b>; let go to hover (on touch, use the ⤒ / ⤓ buttons). Fly with the usual WASD/arrow keys. You must be <b>landed</b> (altitude near zero) on the shop driveway or a drop-off to pick up or deliver. Overhead, the News 9 chopper circles downtown, and the red Rescue chopper from County General backs up the fire trucks when they're all busy.</div>
       <div>🧭 <b>Follow the arrow</b> above your bike and the red beacon — they always point toward your shop or drop-off.</div>
       <div>⏱️ <b>Deliver</b> before the freshness meter hits zero — fresher pizza pays better.</div>
       <div>🚗 <b>Traffic</b> will brake for you if you're in its way, but don't push your luck — and watch out for buildings, too. Break down and you'll pay a repair fee to get back on the road.</div>
@@ -430,7 +434,7 @@ const state = {
   currentVehicle: 'scooter',
   decal: 'none',
   invuln: 0,          // collision cooldown timer
-  keys: { f:false, b:false, l:false, r:false },
+  keys: { f:false, b:false, l:false, r:false, u:false, d:false },
   upgrades: {
     engine:    { level:0, max:3, cost:[40,90,160] },
     handling:  { level:0, max:3, cost:[40,90,160] },
@@ -672,6 +676,95 @@ function spawnStormDebris(){
 function clearStormDebris(){
   stormDebris.forEach(d=>{ if(d.mesh) scene.remove(d.mesh); });
   stormDebris.length = 0;
+  // Force-cancel any debris cleanup crews still mid-job (e.g. a fresh storm
+  // rolling in before the last one's wreckage finished getting cleared) so
+  // nothing is left posed over debris that no longer exists.
+  for(let i=repairCrews.length-1;i>=0;i--){
+    if(repairCrews[i].type==='debris'){
+      scene.remove(repairCrews[i].group);
+      repairCrews.splice(i,1);
+    }
+  }
+}
+
+/* =========================================================
+   POST-DISASTER REPAIR CREWS — small cosmetic worker-and-gear props that
+   show up after the chaos: on a fire-scarred building once the blaze is
+   out, and on each storm-debris pile once the storm itself has passed.
+   Reuses the construction worker mesh. Debris crews deliberately keep
+   their pile in `stormDebris` (and therefore still AI-avoided for routing,
+   see hSegPassable/vSegPassable) until their own timer finishes, so the
+   "road's blocked" effect lingers a little past the storm itself — closer
+   to how a real cleanup would read.
+========================================================= */
+const repairCrews = []; // {type:'building'|'debris', x,z, t, duration, group, worker, building?, debris?}
+
+function buildRepairCrewMesh(){
+  const group = new THREE.Group();
+  const barMat = new THREE.MeshStandardMaterial({color:0xff7a1a, roughness:0.6});
+  const horse = new THREE.Mesh(new THREE.BoxGeometry(1.1,0.12,0.12), barMat);
+  horse.position.set(0,0.55,0);
+  group.add(horse);
+  const leg1 = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.65,0.08), barMat);
+  leg1.position.set(-0.4,0.3,0.25); leg1.rotation.z=0.35;
+  group.add(leg1);
+  const leg2 = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.65,0.08), barMat);
+  leg2.position.set(0.4,0.3,0.25); leg2.rotation.z=-0.35;
+  group.add(leg2);
+  const toolbox = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.3,0.3), new THREE.MeshStandardMaterial({color:0x4a4a4a, roughness:0.5, metalness:0.4}));
+  toolbox.position.set(0.95,0.15,0.35);
+  group.add(toolbox);
+  const worker = buildWorkerMesh();
+  worker.position.set(-0.7,0,0.45);
+  worker.rotation.y = -0.6;
+  group.add(worker);
+  castAll(group);
+  return { group, worker };
+}
+
+function startBuildingRepair(b){
+  if(!b || b.underRepair) return;
+  b.underRepair = true;
+  const side = Math.random()<0.5 ? -1 : 1;
+  const rx = b.x + side*b.hx*0.6;
+  const rz = b.z + (Math.random()<0.5?-1:1)*b.hz*0.3;
+  const rig = buildRepairCrewMesh();
+  rig.group.position.set(rx, terrainHeightAt(rx,rz), rz);
+  rig.group.rotation.y = Math.random()*Math.PI*2;
+  scene.add(rig.group);
+  repairCrews.push({ type:'building', x:rx, z:rz, t:0, duration: 30+Math.random()*15, group:rig.group, worker:rig.worker, building:b });
+  toast('🛠️ A repair crew is patching up the fire damage.', null);
+}
+
+function startDebrisCleanupCrews(){
+  stormDebris.forEach(d=>{
+    const rig = buildRepairCrewMesh();
+    rig.group.position.set(d.x, terrainHeightAt(d.x,d.z), d.z);
+    rig.group.rotation.y = Math.random()*Math.PI*2;
+    scene.add(rig.group);
+    repairCrews.push({ type:'debris', x:d.x, z:d.z, t:0, duration: 8+Math.random()*7, group:rig.group, worker:rig.worker, debris:d });
+  });
+  if(stormDebris.length) toast('🛠️ Cleanup crews are clearing the storm wreckage.', null);
+}
+
+function updateRepairCrews(dt){
+  for(let i=repairCrews.length-1;i>=0;i--){
+    const c = repairCrews[i];
+    c.t += dt;
+    if(c.worker) c.worker.position.y = Math.abs(Math.sin(c.t*4.5))*0.07;
+    if(c.t >= c.duration){
+      scene.remove(c.group);
+      if(c.type==='building' && c.building) c.building.underRepair = false;
+      if(c.type==='debris' && c.debris){
+        const di = stormDebris.indexOf(c.debris);
+        if(di!==-1){
+          if(c.debris.mesh) scene.remove(c.debris.mesh);
+          stormDebris.splice(di,1);
+        }
+      }
+      repairCrews.splice(i,1);
+    }
+  }
 }
 
 function startStorm(){
@@ -681,17 +774,123 @@ function startStorm(){
   spawnStormDebris();
   document.getElementById('storm-panel').style.display = 'block';
   toast('⛈️ A supercell is rolling in! Watch the wind and the wreckage.', 'bad');
+  newsHeliReport('News 9: a supercell is rolling in over downtown — expect debris in the streets.');
 }
 function endStorm(survived){
   stormState.active = false;
   stormState.cooldownTimer = stormState.cooldownDuration;
-  clearStormDebris();
+  startDebrisCleanupCrews();
   document.getElementById('storm-panel').style.display = 'none';
   if(survived){
     state.money += 25;
     toast('☀️ The storm passed. +$25 survivor bonus!', 'good');
     saveProgress();
   }
+}
+
+/* =========================================================
+   AI HELICOPTERS — two non-player choppers, neither one road-bound (they
+   just fly straight lines over everything, no A* needed):
+     - News chopper: pure ambient flavor, loops downtown and calls out
+       the big weather events as a "traffic report" follow-up toast.
+     - Rescue chopper: based on the hospital roof, backs up the fire
+       department whenever every truck is already out on a call.
+   buildHelicopterMesh/makeHeliLabelTexture are defined with the other
+   vehicle-mesh builders further down — fine to call from here since
+   function declarations hoist.
+========================================================= */
+const newsHeli = { x:0, z:0, angle:0, alt:60, mesh:null, rotor:null, tailRotor:null, t:Math.random()*100, radius:130+Math.random()*30, spinSpeed:0.11+Math.random()*0.04 };
+function spawnNewsHeli(){
+  const built = buildHelicopterMesh(0x2b6fd1, 'NEWS 9', '#0c1f3d');
+  newsHeli.mesh = built.mesh;
+  newsHeli.rotor = built.rotor;
+  newsHeli.tailRotor = built.tailRotor;
+  if(built.pizzaBox) built.pizzaBox.visible = false;
+  scene.add(newsHeli.mesh);
+}
+function updateNewsHeli(dt){
+  if(!newsHeli.mesh) return;
+  newsHeli.t += dt*newsHeli.spinSpeed;
+  const nx = Math.cos(newsHeli.t)*newsHeli.radius;
+  const nz = Math.sin(newsHeli.t)*newsHeli.radius*0.7;
+  newsHeli.angle = Math.atan2(nx-newsHeli.x, nz-newsHeli.z) || newsHeli.angle;
+  newsHeli.x = nx; newsHeli.z = nz;
+  const gy = terrainHeightAt(newsHeli.x, newsHeli.z);
+  newsHeli.mesh.position.set(newsHeli.x, gy+newsHeli.alt, newsHeli.z);
+  newsHeli.mesh.rotation.y = newsHeli.angle;
+  newsHeli.rotor.rotation.y += dt*26;
+  newsHeli.tailRotor.rotation.z += dt*38;
+}
+function newsHeliReport(msg){
+  if(!newsHeli.mesh) return;
+  setTimeout(()=>toast('📻 '+msg, null), 1200);
+}
+
+const rescueHeli = { x:0, z:0, angle:0, alt:0, mesh:null, rotor:null, tailRotor:null, mode:'parked', fire:null, home:{x:0,z:0,alt:0} };
+function spawnRescueHeli(){
+  const built = buildHelicopterMesh(0xd81e1e, 'RESCUE', '#7a0d0d');
+  rescueHeli.mesh = built.mesh;
+  rescueHeli.rotor = built.rotor;
+  rescueHeli.tailRotor = built.tailRotor;
+  if(built.pizzaBox) built.pizzaBox.visible = false;
+  rescueHeli.home.x = hospitalInfo.x; rescueHeli.home.z = hospitalInfo.z; rescueHeli.home.alt = hospitalInfo.height+3;
+  rescueHeli.x = rescueHeli.home.x; rescueHeli.z = rescueHeli.home.z; rescueHeli.alt = rescueHeli.home.alt;
+  rescueHeli.mesh.position.set(rescueHeli.x, terrainHeightAt(rescueHeli.x,rescueHeli.z)+rescueHeli.alt, rescueHeli.z);
+  scene.add(rescueHeli.mesh);
+}
+function dispatchRescueHeli(fire){
+  if(!rescueHeli.mesh || rescueHeli.mode!=='parked') return false; // already out, or not built yet
+  rescueHeli.mode = 'toFire';
+  rescueHeli.fire = fire;
+  fire.truck = rescueHeli; // reused purely as a truthy "already being handled" marker, same as a real truck
+  toast('🚁 Every truck is out — the rescue chopper is responding!', null);
+  return true;
+}
+function updateRescueHeli(dt){
+  if(!rescueHeli.mesh) return;
+  if(rescueHeli.mode==='parked'){
+    rescueHeli.rotor.rotation.y += dt*5; // idles slowly on the pad
+    return;
+  }
+  rescueHeli.rotor.rotation.y += dt*30;
+  rescueHeli.tailRotor.rotation.z += dt*42;
+  const FLY_SPEED=24, HOVER_ALT=10, ARRIVE_RADIUS=1.5;
+
+  if(rescueHeli.mode==='toFire'){
+    if(!rescueHeli.fire || activeFires.indexOf(rescueHeli.fire)===-1){
+      rescueHeli.fire = null; rescueHeli.mode = 'returning';
+    } else {
+      rescueHeli.alt += (HOVER_ALT-rescueHeli.alt) * Math.min(1, dt*1.5);
+      const dx=rescueHeli.fire.x-rescueHeli.x, dz=rescueHeli.fire.z-rescueHeli.z, dist=Math.hypot(dx,dz);
+      if(dist > ARRIVE_RADIUS){
+        rescueHeli.x += (dx/dist)*FLY_SPEED*dt; rescueHeli.z += (dz/dist)*FLY_SPEED*dt;
+        rescueHeli.angle = Math.atan2(dx,dz);
+      } else {
+        rescueHeli.mode = 'extinguishing';
+      }
+    }
+  } else if(rescueHeli.mode==='extinguishing'){
+    if(!rescueHeli.fire || activeFires.indexOf(rescueHeli.fire)===-1){
+      rescueHeli.fire = null; rescueHeli.mode = 'returning';
+    } else {
+      rescueHeli.fire.intensity -= dt/6; // a bit faster than a single truck — it's the elite backup unit
+      if(rescueHeli.fire.intensity<=0){
+        toast('🚁 The rescue chopper knocked down the blaze!', 'good');
+        rescueHeli.fire = null; rescueHeli.mode = 'returning';
+      }
+    }
+  } else if(rescueHeli.mode==='returning'){
+    const dx=rescueHeli.home.x-rescueHeli.x, dz=rescueHeli.home.z-rescueHeli.z, dist=Math.hypot(dx,dz);
+    rescueHeli.alt += (rescueHeli.home.alt-rescueHeli.alt) * Math.min(1, dt*1.2);
+    if(dist > ARRIVE_RADIUS){
+      rescueHeli.x += (dx/dist)*FLY_SPEED*dt; rescueHeli.z += (dz/dist)*FLY_SPEED*dt;
+      rescueHeli.angle = Math.atan2(dx,dz);
+    } else {
+      rescueHeli.mode = 'parked';
+    }
+  }
+  rescueHeli.mesh.position.set(rescueHeli.x, terrainHeightAt(rescueHeli.x,rescueHeli.z)+rescueHeli.alt, rescueHeli.z);
+  rescueHeli.mesh.rotation.y = rescueHeli.angle;
 }
 
 /* =========================================================
@@ -791,6 +990,7 @@ function startApocalypse(){
   spawnZombies();
   document.getElementById('zombie-panel').style.display = 'block';
   toast('🧟 THE DEAD ARE RISING! Survive 2 minutes for a bonus!', 'bad');
+  newsHeliReport('News 9: stay indoors — the streets downtown are not safe right now.');
 }
 function endApocalypse(survived){
   zombieState.active = false;
@@ -911,7 +1111,10 @@ function spawnFireTrucks(){
 
 function dispatchTruckTo(fire, truck){
   truck = truck || fireTrucks.find(t=>t.mode==='garaged');
-  if(!truck) return; // every truck is busy — the fire waits until one frees up
+  if(!truck){
+    dispatchRescueHeli(fire); // every truck's busy — the backup unit flies straight there, no road needed
+    return;
+  }
   const dp = curbsideMarkerPos(fire.building);
   const path = computeRoadPath(truck.x, truck.z, dp.x, dp.z);
   if(!path){
@@ -938,7 +1141,7 @@ function returnTruckHome(t){
 function tryIgniteFire(){
   if(activeFires.length >= MAX_ACTIVE_FIRES) return;
   if(Math.random() > FIRE_IGNITE_CHANCE) return;
-  const candidates = buildings.filter(b=>!b.isShop && !b.isFirehouse && !b.isHospital && !b.isPoliceStation && !b.isBank && !activeFires.some(f=>f.building===b));
+  const candidates = buildings.filter(b=>!b.isShop && !b.isFirehouse && !b.isHospital && !b.isPoliceStation && !b.isBank && !b.underRepair && !activeFires.some(f=>f.building===b));
   if(!candidates.length) return;
   startFireAt(candidates[Math.floor(Math.random()*candidates.length)]);
 }
@@ -971,6 +1174,7 @@ function updateFires(dt){
     }
     if(f.intensity<=0){
       scene.remove(f.mesh);
+      startBuildingRepair(f.building);
       activeFires.splice(i,1);
     }
   }
@@ -1173,7 +1377,7 @@ function sendAmbulanceToHospital(amb){
 
 function tryTriggerEmergency(){
   if(activeEmergencies.length >= MAX_ACTIVE_EMERGENCIES) return;
-  const candidates = buildings.filter(b=>!b.isShop && !b.isFirehouse && !b.isHospital && !b.isPoliceStation && !b.isBank && !activeEmergencies.some(e=>e.building===b));
+  const candidates = buildings.filter(b=>!b.isShop && !b.isFirehouse && !b.isHospital && !b.isPoliceStation && !b.isBank && !b.underRepair && !activeEmergencies.some(e=>e.building===b));
   if(!candidates.length) return;
   startEmergencyAt(candidates[Math.floor(Math.random()*candidates.length)]);
 }
@@ -3747,13 +3951,107 @@ function buildMuscleCarMesh(){
   return { mesh:g, wheels:muscleWheels, pizzaBox };
 }
 
+// Shared belly-plate texture for any helicopter variant (player, news,
+// rescue) — same canvas-texture technique as the vehicle decals.
+function makeHeliLabelTexture(text, bg){
+  const w=256,h=96;
+  const cnv=document.createElement('canvas'); cnv.width=w; cnv.height=h;
+  const ctx=cnv.getContext('2d');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle='#ffffff';
+  ctx.font='bold 54px sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(text, w/2, h/2+4);
+  return new THREE.CanvasTexture(cnv);
+}
+
+// Shared helicopter frame — used for the player's own chopper and the two
+// AI ones (news/rescue), which just pass a different body color and belly
+// label so they read as distinct units at a glance.
+function buildHelicopterMesh(bodyColor, labelText, labelBg){
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({color:bodyColor, roughness:0.35, metalness:0.25});
+  const glassMat = new THREE.MeshStandardMaterial({color:0x2c3e50, roughness:0.15, metalness:0.4, transparent:true, opacity:0.75});
+  const darkMat = new THREE.MeshStandardMaterial({color:0x22242b, roughness:0.5, metalness:0.4});
+
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.78,0.68,3.0,10), bodyMat);
+  body.rotation.x = Math.PI/2;
+  body.position.set(0,1.35,-0.1);
+  g.add(body);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.78,10,8), glassMat);
+  nose.scale.set(1,0.9,1.15);
+  nose.position.set(0,1.35,1.55);
+  g.add(nose);
+
+  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.1,3.2,8), bodyMat);
+  boom.rotation.x = Math.PI/2;
+  boom.position.set(0,1.45,-2.9);
+  g.add(boom);
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.7,0.55), bodyMat);
+  fin.position.set(0,1.85,-4.35);
+  g.add(fin);
+  const tailRotor = new THREE.Group();
+  tailRotor.position.set(0.17,1.8,-4.4);
+  const tb1 = new THREE.Mesh(new THREE.BoxGeometry(0.03,0.6,0.07), darkMat);
+  const tb2 = new THREE.Mesh(new THREE.BoxGeometry(0.03,0.6,0.07), darkMat);
+  tb2.rotation.z = Math.PI/2;
+  tb2.position.z = 0.02; // crossed blades share the same Z-depth after this rotation — nudge tb2 off tb1's plane
+  tailRotor.add(tb1, tb2);
+  g.add(tailRotor);
+
+  [-0.72,0.72].forEach(sx=>{
+    const skid = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,3.0,6), darkMat);
+    skid.rotation.x = Math.PI/2;
+    skid.position.set(sx,0.42,0);
+    g.add(skid);
+    [-1.0,1.0].forEach(sz=>{
+      const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.75,6), darkMat);
+      strut.position.set(sx,0.8,sz);
+      g.add(strut);
+    });
+  });
+
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.1,0.35,8), darkMat);
+  mast.position.set(0,2.15,-0.1);
+  g.add(mast);
+  const rotor = new THREE.Group();
+  rotor.position.set(0,2.32,-0.1); // embeds 0.03 into the mast top (2.325) instead of sitting exactly flush on it
+  const blade1 = new THREE.Mesh(new THREE.BoxGeometry(5.4,0.05,0.28), darkMat);
+  const blade2 = new THREE.Mesh(new THREE.BoxGeometry(5.4,0.05,0.28), darkMat);
+  blade2.rotation.y = Math.PI/2;
+  blade2.position.y = 0.02; // crossed blades share the same Y-thickness after this rotation — nudge blade2 off blade1's plane
+  rotor.add(blade1, blade2);
+  g.add(rotor);
+
+  if(labelText){
+    const tex = makeHeliLabelTexture(labelText, labelBg||'#111111');
+    const mat = new THREE.MeshBasicMaterial({map:tex, transparent:true});
+    const plateR = new THREE.Mesh(new THREE.PlaneGeometry(1.7,0.64), mat);
+    plateR.position.set(0.79,1.45,-1.4); plateR.rotation.y = Math.PI/2;
+    g.add(plateR);
+    const plateL = new THREE.Mesh(new THREE.PlaneGeometry(1.7,0.64), mat);
+    plateL.position.set(-0.79,1.45,-1.4); plateL.rotation.y = -Math.PI/2;
+    g.add(plateL);
+  }
+
+  const rack = new THREE.Mesh(new THREE.BoxGeometry(0.55,0.08,0.55), new THREE.MeshStandardMaterial({color:0x555555}));
+  rack.position.set(0,0.46,-1.75); g.add(rack);
+  const pizzaBox = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.18,0.5), new THREE.MeshStandardMaterial({color:0xcb3a2a}));
+  pizzaBox.position.set(0,0.6,-1.75); pizzaBox.visible = false; g.add(pizzaBox);
+
+  castAll(g);
+  return { mesh:g, wheels:[], pizzaBox, rotor, tailRotor };
+}
+function buildPlayerHelicopterMesh(){ return buildHelicopterMesh(0xe3402c, 'PIZZA', '#1b1f2e'); }
+
 const vehicleDefs = {
   scooter:    { name:'🛵 Pizza Scooter', cost:0,   maxSpeed:16, accel:14, turnRate:2.4, armor:1.0,  decayMul:1.0,  capacity:1, build:buildScooterMesh },
   cargotrike: { name:'🛺 Cargo Trike',   cost:40,  maxSpeed:15, accel:13, turnRate:3.1, armor:0.85, decayMul:1.0,  capacity:2, build:buildCargoTrikeMesh },
   sportbike:  { name:'🏍️ Sport Bike',    cost:70,  maxSpeed:22, accel:18, turnRate:2.7, armor:0.92, decayMul:1.0,  capacity:1, build:buildSportBikeMesh },
   pizzacar:   { name:'🚗 Pizza Car',     cost:180, maxSpeed:30, accel:16, turnRate:1.8, armor:0.7,  decayMul:0.82, capacity:2, build:buildPizzaCarMesh },
   deliveryvan:{ name:'🚐 Delivery Van',  cost:260, maxSpeed:26, accel:13, turnRate:1.6, armor:0.5,  decayMul:0.65, capacity:4, build:buildDeliveryVanMesh },
-  musclecar:  { name:'🏁 Muscle Car',    cost:320, maxSpeed:36, accel:22, turnRate:1.5, armor:1.2,  decayMul:1.1,  capacity:1, build:buildMuscleCarMesh }
+  musclecar:  { name:'🏁 Muscle Car',    cost:320, maxSpeed:36, accel:22, turnRate:1.5, armor:1.2,  decayMul:1.1,  capacity:1, build:buildMuscleCarMesh },
+  helicopter: { name:'🚁 Pizza Chopper', cost:550, maxSpeed:34, accel:15, turnRate:1.7, armor:0.6,  decayMul:0.55, capacity:3, build:buildPlayerHelicopterMesh, isAircraft:true }
 };
 function currentCapacity(){ return vehicleDefs[state.currentVehicle].capacity; }
 
@@ -3850,8 +4148,12 @@ function applyVehicleMesh(key){
   if(player.mesh) scene.remove(player.mesh);
   player.mesh = built.mesh;
   player.wheels = built.wheels;
+  player.rotor = built.rotor || null;
+  player.tailRotor = built.tailRotor || null;
   player.pizzaBox = built.pizzaBox;
   player.pizzaBox.visible = state.orders.length>0;
+  player.alt = 0; // switching vehicles always starts grounded, aircraft included
+  document.querySelectorAll('.heli-only').forEach(el=>{ el.style.display = def.isAircraft ? '' : 'none'; });
   player.mesh.position.set(player.x, terrainHeightAt(player.x,player.z), player.z);
   player.mesh.rotation.y = player.angle;
   scene.add(player.mesh);
@@ -3864,7 +4166,7 @@ function applyVehicleMesh(key){
 const SHOP_DRIVEWAY_X = ((0-11) + (0-(BLOCK_HALF+SIDEWALK_W+3))) / 2;
 const SHOP_DRIVEWAY_Z = 0;
 
-const player = { x:SHOP_DRIVEWAY_X, z:SHOP_DRIVEWAY_Z, angle:-Math.PI/2, speed:0, steerInput:0, smoothFriction:1.0, mesh:null, wheels:[], pizzaBox:null, decalMesh:null };
+const player = { x:SHOP_DRIVEWAY_X, z:SHOP_DRIVEWAY_Z, angle:-Math.PI/2, speed:0, steerInput:0, smoothFriction:1.0, mesh:null, wheels:[], pizzaBox:null, decalMesh:null, alt:0, rotor:null, tailRotor:null };
 applyVehicleMesh(state.currentVehicle);
 
 function buildGuideArrow(){
@@ -3914,6 +4216,8 @@ window.addEventListener('keydown', e=>{
     case 'ArrowDown': case 'KeyS': state.keys.b=true; break;
     case 'ArrowLeft': case 'KeyA': state.keys.l=true; break;
     case 'ArrowRight': case 'KeyD': state.keys.r=true; break;
+    case 'Space': case 'KeyE': state.keys.u=true; e.preventDefault(); break;
+    case 'ShiftLeft': case 'ShiftRight': case 'KeyQ': state.keys.d=true; break;
   }
 });
 window.addEventListener('keyup', e=>{
@@ -3922,6 +4226,8 @@ window.addEventListener('keyup', e=>{
     case 'ArrowDown': case 'KeyS': state.keys.b=false; break;
     case 'ArrowLeft': case 'KeyA': state.keys.l=false; break;
     case 'ArrowRight': case 'KeyD': state.keys.r=false; break;
+    case 'Space': case 'KeyE': state.keys.u=false; break;
+    case 'ShiftLeft': case 'ShiftRight': case 'KeyQ': state.keys.d=false; break;
   }
 });
 
@@ -3934,7 +4240,7 @@ function bindTouch(id, key){
   el.addEventListener('pointerleave', off);
   el.addEventListener('pointercancel', off);
 }
-bindTouch('t-fwd','f'); bindTouch('t-back','b'); bindTouch('t-left','l'); bindTouch('t-right','r');
+bindTouch('t-fwd','f'); bindTouch('t-back','b'); bindTouch('t-left','l'); bindTouch('t-right','r'); bindTouch('t-up','u'); bindTouch('t-down','d');
 if('ontouchstart' in window){ document.getElementById('touch-controls').classList.add('show'); }
 
 const camState = { yaw:0, pitch:0.5, dist:7.5, dragging:false, lastX:0, lastY:0 };
@@ -3997,6 +4303,7 @@ function pickDestination(excludeBuildings){
   const pool = buildings.filter(b=>{
     if(b.isShop) return false; // never deliver back to the shop itself
     if(b.isConstructionSite && !b.constructionComplete) return false; // nothing to deliver to yet
+    if(b.underRepair) return false; // a repair crew's working the scene, give them room
     if(excludeBuildings && excludeBuildings.has(b)) return false; // no two active orders to the same address
     if(b.dist==='suburbs' && !state.unlocked.suburbs) return false;
     if(b.dist==='industrial' && !state.unlocked.industrial) return false;
@@ -4228,7 +4535,8 @@ function update(dt){
   emergencyState.nextCheckIn -= dt;
   if(emergencyState.nextCheckIn<=0){
     emergencyState.nextCheckIn = 25+Math.random()*30;
-    if(Math.random()<0.5) tryTriggerEmergency();
+    // Chaos drives up call volume — a storm roughly doubles the odds each check-in fires.
+    if(Math.random() < (stormState.active ? 0.85 : 0.5)) tryTriggerEmergency();
   }
   updateEmergencies(dt);
   updateAmbulances(dt);
@@ -4249,7 +4557,8 @@ function update(dt){
   if(!crimeState.active){
     crimeState.nextCheckIn -= dt;
     if(crimeState.nextCheckIn<=0){
-      crimeState.nextCheckIn = CRIME_CHECK_MIN+Math.random()*(CRIME_CHECK_MAX-CRIME_CHECK_MIN);
+      // Crooks love cover of a storm — checks come around faster while one's raging.
+      crimeState.nextCheckIn = (CRIME_CHECK_MIN+Math.random()*(CRIME_CHECK_MAX-CRIME_CHECK_MIN)) * (stormState.active ? 0.6 : 1);
       tryTriggerRobbery();
     }
   }
@@ -4258,6 +4567,14 @@ function update(dt){
   // ----- Construction sites: always ticking, independent of every other
   // event system. -----
   updateConstructionSites(dt);
+
+  // ----- Post-disaster repair crews: fire scars and lingering storm
+  // debris both tick down on their own timers here. -----
+  updateRepairCrews(dt);
+
+  // ----- AI helicopters: ambient news chopper, backup rescue chopper. -----
+  updateNewsHeli(dt);
+  updateRescueHeli(dt);
 
   // Only one event's atmosphere applies at a time (mutually exclusive by
   // the trigger buttons below), so whichever still has any blend showing
@@ -4308,6 +4625,7 @@ function update(dt){
   if(state.invuln>0) state.invuln -= dt;
   let collided = false;
   const MARGIN = 6;
+  const isAircraft = !!vehicleDefs[state.currentVehicle].isAircraft;
 
   // FIX: this used to be `player.speed -= dot`, which — since dot is
   // negative when driving into a wall — actually INCREASED speed on
@@ -4336,6 +4654,12 @@ function update(dt){
     player.z -= Math.cos(player.angle)*kb;
   }
 
+  // A helicopter in the air flies clean over every ground-level obstacle
+  // below — buildings, gates, rivers, the boundary wall, cones/mailboxes,
+  // storm debris — none of it applies while airborne. (It still can't
+  // pick up or drop off without landing — see the altitude gate further
+  // down on fillOrders/completeOrder.)
+  if(!isAircraft){
   for(let i=0;i<buildings.length;i++){
     const b = buildings[i];
     if(Math.abs(player.x-b.x)>b.hx+MARGIN || Math.abs(player.z-b.z)>b.hz+MARGIN) continue;
@@ -4421,6 +4745,7 @@ function update(dt){
     }
   }
   if(collided) player.speed *= 0.65;
+  } // end if(!isAircraft) ground-collision block
 
   // Animate any flying debris (cones/mailboxes knocked away) — simple
   // projectile motion with gravity and tumbling rotation, removed once it
@@ -4495,7 +4820,7 @@ function update(dt){
     c.mesh.position.set(cx,0,cz);
     c.mesh.rotation.y = ang;
     const res = resolveBoxCollision(player.x, player.z, {x:cx,z:cz,hx:c.hx,hz:c.hz}, PLAYER_RADIUS);
-    if(res.hit){
+    if(res.hit && !isAircraft){
       player.x += res.nx*res.push; player.z += res.nz*res.push;
       cancelIntoWall(res.nx,res.nz);
       player.speed *= 0.65;
@@ -4522,7 +4847,7 @@ function update(dt){
       p.mesh.rotation.y = ang;
       const pdx=player.x-px, pdz=player.z-pz;
       const prad = PLAYER_RADIUS+0.4;
-      if(pdx*pdx+pdz*pdz < prad*prad){
+      if(!isAircraft && pdx*pdx+pdz*pdz < prad*prad){
         const dist = Math.hypot(pdx,pdz)||0.001;
         const pnx=pdx/dist, pnz=pdz/dist;
         player.x += pnx*(prad-dist); player.z += pnz*(prad-dist);
@@ -4538,12 +4863,33 @@ function update(dt){
   }
 
   const groundY = terrainHeightAt(player.x, player.z);
-  player.mesh.position.set(player.x, groundY, player.z);
+
+  // ----- Helicopter altitude: manual. Space/E climbs, Shift/Q descends
+  // (on-screen ▲▲/▼▼ buttons on touch). Releasing both holds altitude.
+  // Pickup/delivery below are gated on actually being landed, so flying
+  // over a pad doesn't auto-complete anything — set down on it first.
+  const HELI_MAX_ALT = 40, HELI_LAND_ALT = 1.5, HELI_CLIMB_SPEED = 9;
+  if(isAircraft){
+    const vert = (state.keys.u?1:0) - (state.keys.d?1:0);
+    player.alt = Math.max(0, Math.min(HELI_MAX_ALT, player.alt + vert*HELI_CLIMB_SPEED*dt));
+    // Town bounds double as the aircraft's only boundary, since it skips
+    // the physical boundary-wall collision entirely.
+    const M=15;
+    player.x = Math.max(TOWN_MIN_X+M, Math.min(TOWN_MAX_X-M, player.x));
+    player.z = Math.max(TOWN_MIN_Z+M, Math.min(TOWN_MAX_Z-M, player.z));
+  } else {
+    player.alt = 0;
+  }
+  const dispY = groundY + player.alt;
+  player.mesh.position.set(player.x, dispY, player.z);
   player.mesh.rotation.y = player.angle;
   const wheelSpin = player.speed*dt*1.6;
   player.wheels.forEach(w=>{ w.rotation.x += wheelSpin; });
+  if(player.rotor) player.rotor.rotation.y += dt*(26+Math.abs(player.speed));
+  if(player.tailRotor) player.tailRotor.rotation.z += dt*40;
 
-  if(state.orders.length < currentCapacity() && shopInfo && shopInfo.driveway){
+  const landed = !isAircraft || player.alt < HELI_LAND_ALT;
+  if(landed && state.orders.length < currentCapacity() && shopInfo && shopInfo.driveway){
     const dw = shopInfo.driveway;
     const margin = 2.5; // a little slack around the driveway strip so it isn't pixel-precise
     if(Math.abs(player.x-dw.x)<=dw.hx+margin && Math.abs(player.z-dw.z)<=dw.hz+margin){ fillOrders(); }
@@ -4556,23 +4902,23 @@ function update(dt){
     else{
       const dp = order.dropPoint;
       const dx = player.x-dp.x, dz = player.z-dp.z;
-      if(Math.hypot(dx,dz) < 5.5){ completeOrder(order); }
+      if(landed && Math.hypot(dx,dz) < 5.5){ completeOrder(order); }
     }
   }
   const urgentOrder = mostUrgentOrder();
   const navTarget = urgentOrder ? urgentOrder.dropPoint : (shopInfo && shopInfo.driveway ? shopInfo.driveway : shopInfo);
   if(navTarget) updateOrderUI(navTarget, urgentOrder);
 
-  // Camera and guide arrow ride the same terrain height the player does,
-  // so they stay anchored to the bike over hills instead of drifting
-  // relative to it.
+  // Camera and guide arrow ride the player's actual height (ground level,
+  // or ground+altitude while flying), so they stay anchored over hills —
+  // and climb with the helicopter — instead of drifting relative to it.
   const yaw = player.angle + camState.yaw;
   const horizDist = camState.dist*Math.cos(camState.pitch);
-  const camY = groundY + 1.2 + camState.dist*Math.sin(camState.pitch);
+  const camY = dispY + 1.2 + camState.dist*Math.sin(camState.pitch);
   const cfx = Math.sin(yaw), cfz = Math.cos(yaw);
   const desired = new THREE.Vector3(player.x-cfx*horizDist, camY, player.z-cfz*horizDist);
   camera.position.lerp(desired, Math.min(1, dt*9));
-  const lookAt = new THREE.Vector3(player.x, groundY + 1.1, player.z);
+  const lookAt = new THREE.Vector3(player.x, dispY + 1.1, player.z);
   camera.lookAt(lookAt);
 
   state.orders.forEach(o=>{
@@ -4585,7 +4931,7 @@ function update(dt){
   if(navTarget){
     const tdx = navTarget.x-player.x, tdz = navTarget.z-player.z;
     const bearing = Math.atan2(tdx, tdz);
-    guideArrow.position.set(player.x, groundY + 3.8 + Math.sin(clock.elapsedTime*3)*0.18, player.z);
+    guideArrow.position.set(player.x, dispY + 3.8 + Math.sin(clock.elapsedTime*3)*0.18, player.z);
     guideArrow.rotation.y = bearing + Math.PI;
   }
 
@@ -4617,6 +4963,28 @@ function worldToNode(wx,wz){
   return {c,r};
 }
 
+// Storm debris sits right on a road's centerline (±a small lane offset) and
+// the player can always still thread past it (see spawnStormDebris's
+// clearance guarantees) — but emergency/AI vehicles treat a debris-covered
+// segment as "the road's blocked here" and route around it instead, the
+// same way they already route around an un-bridged river. Only consulted
+// while a storm is actually active (stormDebris is empty otherwise, so the
+// check would always be free, but the explicit guard keeps intent clear).
+function debrisBlocksSegment(x1,z1,x2,z2){
+  if(!stormDebris.length) return false;
+  const MARGIN=3; // keep intersections themselves clear so adjoining edges aren't affected
+  const vertical = (x1===x2);
+  for(let i=0;i<stormDebris.length;i++){
+    const d=stormDebris[i];
+    if(vertical){
+      if(Math.abs(d.x-x1) < ROAD_W*0.5 && d.z>Math.min(z1,z2)+MARGIN && d.z<Math.max(z1,z2)-MARGIN) return true;
+    } else {
+      if(Math.abs(d.z-z1) < ROAD_W*0.5 && d.x>Math.min(x1,x2)+MARGIN && d.x<Math.max(x1,x2)-MARGIN) return true;
+    }
+  }
+  return false;
+}
+
 function hSegPassable(c,r){
   const xL=nodeX(c), xR=nodeX(c+1), zr=nodeZ(r);
   const rivers=[
@@ -4627,12 +4995,18 @@ function hSegPassable(c,r){
   ];
   for(const {x:rx,key} of rivers){
     if(rx>xL && rx<xR){
-      if(state.unlocked[key]) return true;
-      if(Math.abs(zr-BRIDGE_Z)<=BRIDGE_HALF_LEN) return true;
-      return false;
+      if(!state.unlocked[key] && Math.abs(zr-BRIDGE_Z)>BRIDGE_HALF_LEN) return false;
+      break;
     }
   }
+  if(stormState.active && debrisBlocksSegment(xL,zr,xR,zr)) return false;
   return true;
+}
+
+function vSegPassable(c,r){
+  if(!stormState.active) return true;
+  const x=nodeX(c), zB=nodeZ(r), zT=nodeZ(r+1);
+  return !debrisBlocksSegment(x,zB,x,zT);
 }
 
 function aStar(sc,sr,ec,er){
@@ -4663,6 +5037,7 @@ function aStar(sc,sr,ec,er){
       const nc=cc+dc, nr=cr+dr;
       if(nc<0||nc>=NUM_COLS||nr<0||nr>=NUM_ROWS) continue;
       if(dc!==0 && !hSegPassable(dc>0?cc:nc, cr)) continue;
+      if(dr!==0 && !vSegPassable(cc, dr>0?cr:nr)) continue;
       const nk=nr*N+nc, tg=g[cur]+1;
       if(tg<g[nk]){
         prev[nk]=cur; g[nk]=tg; f[nk]=tg+H(nc,nr);
@@ -5390,6 +5765,8 @@ async function boot(){
   spawnFireTrucks();
   spawnAmbulances();
   spawnPatrolCars();
+  spawnNewsHeli();
+  spawnRescueHeli();
   buildRain();
 
   updateDamageUI();
